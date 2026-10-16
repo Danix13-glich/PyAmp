@@ -1,0 +1,93 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+parts/
+var/
+sdist/
+wheels/
+pip-wheel-metadata/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ---------- Entornos virtuales ----------
+.venv/
+venv/
+ENV/
+env/
+.env
+
+# ---------- Herramientas / testing ----------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+*.cover
+.hypothesis/
+.tox/
+.nox/
+.dmypy.json
+dmypy.json
+
+# ---------- PyInstaller ----------
+*.manifest
+*.spec.bak
+packaging/pyinstaller/build/
+packaging/pyinstaller/dist/
+
+# ---------- Qt / PySide6 ----------
+*.qmlc
+*.jsc
+moc_*.cpp
+ui_*.h
+qrc_*.cpp
+*.qmlproject.user
+*.qmlproject.user.*
+
+# ---------- Datos locales de la app ----------
+# (log, BD, caché generados por la app en runtime)
+*.db
+*.db-journal
+*.sqlite3
+logs/
+*.log
+
+# ---------- IDE / Editor ----------
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# ---------- Sistema operativo ----------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100/
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ---------- Jupyter / misc ----------
+.ipynb_checkpoints/
+*.local

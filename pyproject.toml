@@ -1,0 +1,98 @@
+[project]
+name = "pyamp"
+version = "0.1.0"
+description = "Reproductor de música local y radios online con estética Winamp moderna, escrito en Python con PySide6 y VLC."
+readme = "README_EN.md"
+requires-python = ">=3.11"
+license = { text = "Propietaria / pendiente de decidir (ver README)" }
+authors = [{ name = "Danix13-glich" }]
+keywords = ["music", "player", "winamp", "vlc", "pyside6", "qt", "radio", "equalizer"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: X11 Applications :: Qt",
+    "Intended Audience :: End Users/Desktop",
+    "Natural Language :: Spanish",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Players",
+]
+
+[project.urls]
+Homepage = "https://github.com/Danix13-glich/PyAmp"
+Repository = "https://github.com/Danix13-glich/PyAmp"
+Issues = "https://github.com/Danix13-glich/PyAmp/issues"
+
+[project.scripts]
+pyamp = "app.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.4",
+    "ruff>=0.4",
+    "black>=24.0",
+    "mypy>=1.10",
+    "pyinstaller>=6.0",
+    "pre-commit>=3.7",
+    "types-requests>=2.31",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+packages = ["app"]
+
+[tool.setuptools.package-data]
+app = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "C4",  # comprehensions
+    "SIM", # simplify
+]
+ignore = [
+    "E501",   # line length: lo formatea black
+    "B008",   # calls in defaults: aceptado en Qt (lambda/flags)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.mypy]
+python_version = "3.11"
+packages = ["app"]
+mypy_path = "src"
+namespace_packages = true
+explicit_package_bases = true
+warn_unused_configs = true
+ignore_missing_imports = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+qt_api = "pyside6"
+addopts = "-q"

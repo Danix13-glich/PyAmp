@@ -1,0 +1,8 @@
+pytest>=8.0
+pytest-qt>=4.4
+ruff>=0.4
+black>=24.0
+mypy>=1.10
+pyinstaller>=6.0
+pre-commit>=3.7
+types-requests>=2.31

@@ -1,0 +1,63 @@
+# Normaliza a LF en el repo (evita CRLF en colaboración cruzada SO).
+* text=auto
+
+# ---------- Fuentes: siempre LF ----------
+*.py        text eol=lf
+*.pyi       text eol=lf
+*.toml      text eol=lf
+*.md        text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+*.cfg       text eol=lf
+*.ini       text eol=lf
+*.txt       text eol=lf
+*.sh        text eol=lf
+*.qss       text eol=lf
+*.lrc       text eol=lf
+*.desktop   text eol=lf
+.editorconfig text eol=lf
+.gitignore  text eol=lf
+
+# ---------- Windows: se manejan mejor con CRLF ----------
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+*.ps1       text eol=crlf
+
+# ---------- Binarios: sin diff, sin transformación ----------
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.icns      binary
+*.bmp       binary
+*.svg       -text
+*.ttf       binary
+*.otf       binary
+*.woff      binary
+*.woff2     binary
+*.mp3       binary
+*.flac      binary
+*.ogg       binary
+*.opus      binary
+*.m4a       binary
+*.wav       binary
+*.aac       binary
+*.wsz       binary
+*.zip       binary
+*.gz        binary
+*.bz2       binary
+*.xz        binary
+*.7z        binary
+*.AppImage  binary
+*.exe       binary
+*.msi       binary
+*.dll       binary
+*.so        binary
+*.dylib     binary
+*.pdf       binary
+
+# ---------- Diff: sugerencias útiles ----------
+*.py        diff=python
+*.md       diff=markdown
