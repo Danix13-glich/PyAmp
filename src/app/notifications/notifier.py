@@ -192,19 +192,29 @@ class Notifier:
             logger.error("Error formateando notificación: %s", exc)
             return
 
+        # Carátula (Fase 1: Linux la muestra vía hint image-data; los demás
+        # backends la ignoran hasta que la implementen).
+        if isinstance(track, dict):
+            image_path = track.get("cover_path")
+        else:
+            image_path = getattr(track, "cover_path", None)
+        if image_path and not Path(str(image_path)).is_file():
+            image_path = None
+
         try:
-            self._send(app_name, title, body)
+            self._send(app_name, title, body, str(image_path) if image_path else None)
         except Exception as exc:  # noqa: BLE001
             # Regla de oro: la notificación jamás interrumpe la reproducción.
             logger.error("Error enviando notificación (backend=%s): %s", self._backend_name, exc)
 
-    def _send(self, app_name: str, title: str, body: str) -> None:
+    def _send(self, app_name: str, title: str, body: str, image_path: str | None = None) -> None:
         """Despacha la notificación al backend activo.
 
         Args:
             app_name: Nombre de la app ("PyAmp").
             title: Título de la notificación.
             body: Cuerpo de la notificación.
+            image_path: Ruta de la carátula o None si no hay.
         """
         if self._backend is None:
             logger.debug("Sin backend de notificaciones; se omite: %r / %r", title, body)
@@ -222,7 +232,13 @@ class Notifier:
             return
 
         # Backends propios (Linux/Windows/macOS) implementan notify().
-        self._backend.notify(app_name=app_name, title=title, body=body, timeout_ms=self.timeout_ms)
+        self._backend.notify(
+            app_name=app_name,
+            title=title,
+            body=body,
+            timeout_ms=self.timeout_ms,
+            image_path=image_path,
+        )
 
     def notify(self, title: str, body: str) -> None:
         """Lanza una notificación genérica (no de pista).
@@ -237,7 +253,7 @@ class Notifier:
         if not self.enabled:
             return
         try:
-            self._send("PyAmp", title, body)
+            self._send("PyAmp", title, body, None)
         except Exception as exc:  # noqa: BLE001
             logger.error("Error en notificación genérica: %s", exc)
 
