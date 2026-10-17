@@ -69,14 +69,24 @@ WINDOW_TITLE = "PyAmp"
 ERROR_TIMEOUT_MS = 10000
 VOLUME_SLIDER_WIDTH = 140
 
-#: Ancho de la zona de título/artista (ajuste Fase 5).
-TEXT_COL_WIDTH = 148
-
 #: Tamaño inicial de la ventana (ajuste Fase 5: 630×485).
 WINDOW_INITIAL_SIZE = (630, 485)
 
 #: Separación (px) entre la ventana principal y la de letra.
 LYRICS_GAP_PX = 8
+
+#: Nombre mostrado del códec por extensión (franja técnica de la cabecera).
+CODEC_BY_EXTENSION = {
+    ".aac": "AAC",
+    ".flac": "FLAC",
+    ".m4a": "AAC",
+    ".mp4": "AAC",
+    ".oga": "OGG Vorbis",
+    ".ogg": "OGG Vorbis",
+    ".opus": "Opus",
+    ".wav": "WAV",
+    ".wma": "WMA",
+}
 
 
 class _FolderLoader(QThread):
@@ -154,33 +164,65 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        # --- fila de información (carátula / título / artista / tiempo) ---
-        info_row = QHBoxLayout()
+        # --- cabecera estilo Winamp: carátula, texto, espectro y franja ---
+        header_panel = QWidget()
+        header_panel.setObjectName("headerPanel")
+        header_v = QVBoxLayout(header_panel)
+        header_v.setContentsMargins(10, 8, 10, 6)
+        header_v.setSpacing(4)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(12)
         self._cover_label = CoverLabel()
-        info_row.addWidget(self._cover_label, alignment=Qt.AlignmentFlag.AlignVCenter)
+        top_row.addWidget(self._cover_label, alignment=Qt.AlignmentFlag.AlignTop)
+
         text_col = QVBoxLayout()
+        text_col.setSpacing(0)
         self._label_title = QLabel(WINDOW_TITLE)
         title_font = self._label_title.font()
         title_font.setBold(True)
-        title_font.setPointSize(title_font.pointSize() + 2)
+        title_font.setPointSize(title_font.pointSize() + 3)
         self._label_title.setFont(title_font)
+        self._label_title.setStyleSheet("color: #f2f2f7;")
         self._label_title.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         self._label_artist = QLabel("—")
         self._label_artist.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._label_album = QLabel("")
+        self._label_album.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         text_col.addWidget(self._label_title)
         text_col.addWidget(self._label_artist)
-        text_wrap = QWidget()
-        text_wrap.setFixedWidth(TEXT_COL_WIDTH)
-        text_wrap.setLayout(text_col)
-        info_row.addWidget(text_wrap, stretch=1)
+        text_col.addWidget(self._label_album)
+        top_row.addLayout(text_col, stretch=1)
 
+        # Espectrograma integrado en la cabecera (a la derecha, como Winamp).
+        self._spectrum = SpectrumWidget()
+        self._spectrum.setVisible(self._settings.show_spectrum)
+        top_row.addWidget(self._spectrum, alignment=Qt.AlignmentFlag.AlignVCenter)
+        header_v.addLayout(top_row)
+
+        bottom_row = QHBoxLayout()
+        self._label_format = QLabel("")
+        small_font = self._label_format.font()
+        small_font.setPointSize(max(7, small_font.pointSize() - 2))
+        self._label_format.setFont(small_font)
+        self._label_format.setStyleSheet("color: #7e7e88;")
+        self._label_format.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        bottom_row.addWidget(self._label_format, stretch=1)
         self._label_time = QLabel("0:00 / 0:00")
         fixed_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         self._label_time.setFont(fixed_font)
-        info_row.addWidget(self._label_time, alignment=Qt.AlignmentFlag.AlignVCenter)
-        layout.addLayout(info_row)
+        self._label_time.setStyleSheet("color: #e8e8ee;")
+        bottom_row.addWidget(self._label_time)
+        header_v.addLayout(bottom_row)
 
-        # --- barra de posición justo debajo del tiempo (ajuste Fase 5) ---
+        # Panel oscuro fijo (el borde de la carátula es propio del widget).
+        header_panel.setStyleSheet(
+            "QWidget#headerPanel { background-color: #17171b; border-radius: 6px; }"
+            "QWidget#headerPanel QLabel { color: #9e9ea6; background: transparent; }"
+        )
+        layout.addWidget(header_panel)
+
+        # --- barra de posición justo debajo de la cabecera ---
         self._slider_seek = QSlider(Qt.Orientation.Horizontal)
         self._slider_seek.setRange(0, 0)
         self._slider_seek.setToolTip("Posición de reproducción")
@@ -233,11 +275,6 @@ class MainWindow(QMainWindow):
         self._slider_volume.valueChanged.connect(self._on_volume_slider_changed)
         transport_row.addWidget(self._slider_volume)
         layout.addLayout(transport_row)
-
-        # --- espectrograma (visible según el menú Ver) ---
-        self._spectrum = SpectrumWidget()
-        self._spectrum.setVisible(self._settings.show_spectrum)
-        layout.addWidget(self._spectrum)
 
         # --- vistas a todo el ancho (menú Ver): canciones | biblioteca ---
         self._songs_table = SongsTable(self._library)
@@ -642,6 +679,9 @@ class MainWindow(QMainWindow):
         self._label_title.setToolTip(track.path)
         self._label_artist.setText(track.display_artist)
         self._label_artist.setToolTip(track.path)
+        self._label_album.setText(track.album or "")
+        self._label_album.setVisible(bool(track.album))
+        self._label_format.setText(self._format_audio_info(track))
         cover = self._cover_for(track)
         self._cover_label.set_cover(cover)
 
@@ -663,6 +703,34 @@ class MainWindow(QMainWindow):
             self._lyrics_window.show_track(track)
         if self._mpris is not None:
             self._mpris.update_metadata(cover or "")
+
+    def _format_audio_info(self, track: Track) -> str:
+        """Texto técnico de la cabecera: «MPEG-1 layer 3, estéreo, 44 kHz, 128 kbit/s».
+
+        El códec sale de la extensión (`.mp3` distingue MPEG-1/2 según la
+        frecuencia de muestreo); el resto, de los metadatos del archivo.
+        """
+        extension = Path(track.path).suffix.lower()
+        if extension == ".mp3":
+            khz = (track.samplerate or 0) / 1000
+            if not khz:
+                codec = "MPEG layer 3"
+            else:
+                codec = "MPEG-1 layer 3" if khz >= 32 else "MPEG-2 layer 3"
+        else:
+            codec = CODEC_BY_EXTENSION.get(extension, "")
+        parts = [codec] if codec else []
+        if track.channels == 1:
+            parts.append("mono")
+        elif track.channels == 2:
+            parts.append("estéreo")
+        elif track.channels:
+            parts.append(f"{track.channels} canales")
+        if track.samplerate:
+            parts.append(f"{round(track.samplerate / 1000)} kHz")
+        if track.bitrate:
+            parts.append(f"{round(track.bitrate / 1000)} kbit/s")
+        return ", ".join(parts)
 
     def _on_state_changed(self, state: str) -> None:
         """Refleja el estado en el icono del play unificado y el espectro."""
