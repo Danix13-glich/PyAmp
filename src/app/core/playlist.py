@@ -11,14 +11,13 @@ import logging
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
+from app.library.metadata import AUDIO_EXTENSIONS
 from app.library.models import Track
 
 logger = logging.getLogger(__name__)
 
-#: Extensiones que PyAmp reconoce como audio.
-AUDIO_EXTENSIONS = frozenset(
-    {".mp3", ".flac", ".ogg", ".oga", ".opus", ".m4a", ".aac", ".wav", ".aiff", ".aif", ".wma"}
-)
+# AUDIO_EXTENSIONS vive ahora en app.library.metadata (fuente única);
+# se reimporta aquí por compatibilidad con los llamantes de la Fase 1.
 
 M3U_HEADER = "#EXTM3U"
 

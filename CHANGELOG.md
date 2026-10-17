@@ -30,6 +30,15 @@ y el proyecto sigue [SemVer](https://semver.org/lang/es/spec/v2.0.0.html).
   - `src/app/notifications/windows_notifier.py` y `macos_notifier.py`: stubs con TODO para Fase 8.
   - `src/app/ui/main_window.py`: UI mínima (abrir archivo/carpeta en QThread, transporte, seek, volumen, mute, lista, `.m3u`, QSettings) + única conexión `track_changed → Notifier`.
   - Tests: `tests/test_metadata.py` (fixtures WAV generados) — total 16 tests.
+- **Fase 2 — biblioteca (SQLite, escáner, carátulas)**:
+  - `src/app/library/models.py` ampliado: campos de gestión en `Track` (`file_size`, `file_mtime`, `added_at`, `last_played_at`) y nuevos dataclasses `Artist`, `Album`, `Playlist`.
+  - `src/app/library/database.py`: SQLite en `<datos>/PyAmp/library.db` (WAL + foreign keys), migraciones por `PRAGMA user_version` (v1), CRUD de pistas (upsert incremental preserva estadísticas, borrado de ausentes, limpieza de álbumes/artistas huérfanos), búsqueda literal, `list_artists`/`list_albums`/`stats`, `record_play_by_path`.
+  - `src/app/library/covers.py`: extracción de carátulas movida aquí desde `metadata.py` (única implementación; `metadata.extract_cover` delega por compatibilidad con la Fase 1).
+  - `src/app/library/scanner.py`: `ScannerThread` (QThread) — escaneo recursivo incremental por `(mtime, size)`, progreso y cancelación, conexión propia por hilo, commits por lotes, extrae carátulas y elimina archivos desaparecidos.
+  - `src/app/library/playlist_repository.py`: playlists con nombre en SQLite (crear/borrar/renombrar/contenido ordenado) complementarias a los `.m3u`.
+  - `src/app/ui/main_window.py`: menú «Archivo → Escanear carpeta en biblioteca...» con progreso en la barra de estado, y wiring `track_changed → record_play_by_path` (estadísticas en cada cambio real de pista).
+  - `AUDIO_EXTENSIONS` movido de `core/playlist.py` a `library/metadata.py` (fuente única; la playlist lo reimporta por compatibilidad).
+  - Tests: `tests/test_database.py` (esquema, CRUD, cascadas, playlists, escáner incremental/cancelación) — total 32 tests.
 
 ### Fixed
 - Workaround en `VlcBackend`: libVLC (Fedora 44, VLC 3.0.23) hace SIGSEGV si se llama `audio_set_volume`/`audio_set_mute` antes de existir la salida de audio; el volumen/mute se difiere hasta que `is_playing()` es True.

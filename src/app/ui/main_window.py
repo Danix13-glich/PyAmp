@@ -41,8 +41,10 @@ from PySide6.QtWidgets import (
 from app.core.player import STATE_PLAYING, STATE_STOPPED, Player
 from app.core.playlist import audio_filter_string, collect_audio_files
 from app.core.settings import Settings, get_settings
+from app.library.database import LibraryDatabase
 from app.library.metadata import read_metadata
 from app.library.models import Track
+from app.library.scanner import ScannerThread
 from app.notifications.notifier import Notifier
 from app.utils.paths import PLAYLISTS_DIR
 from app.utils.time_format import format_time
@@ -101,6 +103,8 @@ class MainWindow(QMainWindow):
         )
 
         self._folder_loader: _FolderLoader | None = None
+        self._scanner: ScannerThread | None = None
+        self._library = LibraryDatabase()
         self._duration_ms = 0
         self._last_folder = str(Path.home())
 
@@ -220,6 +224,11 @@ class MainWindow(QMainWindow):
         self._action_open_folder = action_open_folder
         file_menu.addAction(action_open_folder)
 
+        action_scan = QAction("Escanear carpeta en &biblioteca...", self)
+        action_scan.triggered.connect(self._on_scan_library)
+        self._action_scan = action_scan
+        file_menu.addAction(action_scan)
+
         file_menu.addSeparator()
 
         action_load = QAction("&Cargar playlist...", self)
@@ -269,6 +278,8 @@ class MainWindow(QMainWindow):
         player.duration_changed.connect(self._on_duration_changed)
         player.volume_changed.connect(self._on_volume_changed)
         player.error_occurred.connect(self._on_error)
+        # La biblioteca acumula estadísticas en cada cambio de pista real.
+        player.track_changed.connect(self._record_library_play)
 
         self._playlist_widget.itemActivated.connect(self._on_item_activated)
 
@@ -315,6 +326,55 @@ class MainWindow(QMainWindow):
     def _on_folder_finished(self) -> None:
         self._folder_loader = None
         self._action_open_folder.setEnabled(True)
+
+    # ------------------------------------------------- biblioteca (Fase 2)
+    def _on_scan_library(self) -> None:
+        """Diálogo de carpeta → escaneo de biblioteca en QThread."""
+        if self._scanner is not None and self._scanner.isRunning():
+            return
+        folder = QFileDialog.getExistingDirectory(
+            self, "Escanear carpeta para la biblioteca", self._last_folder
+        )
+        if not folder:
+            return
+        self._last_folder = folder
+        self._action_scan.setEnabled(False)
+        self.statusBar().showMessage(f"Escaneando {folder} ...", 0)
+        scanner = ScannerThread(self._library.path, folder, self)
+        scanner.progress.connect(self._on_scan_progress)
+        scanner.scan_finished.connect(self._on_scan_finished)
+        scanner.scan_error.connect(self._on_error)
+        self._scanner = scanner
+        scanner.start()
+
+    def _on_scan_progress(self, processed: int, current: str) -> None:
+        self.statusBar().showMessage(f"Escaneando… {processed} archivos ({current})", 0)
+
+    def _on_scan_finished(self, summary: object) -> None:
+        """Resumen del escaneo (hilo de UI); reactiva el menú."""
+        self._scanner = None
+        self._action_scan.setEnabled(True)
+        if not isinstance(summary, dict):
+            return
+        message = (
+            f"Biblioteca: {summary['added']} añadidas, {summary['updated']} "
+            f"actualizadas, {summary['skipped']} sin cambios, "
+            f"{summary['removed']} eliminadas"
+        )
+        if summary.get("errors"):
+            message += f", {summary['errors']} errores"
+        if summary.get("cancelled"):
+            message += " (escaneo cancelado)"
+        self.statusBar().showMessage(message, ERROR_TIMEOUT_MS)
+
+    def _record_library_play(self, track: object) -> None:
+        """Suma una reproducción en la biblioteca (nunca rompe el playback)."""
+        if not isinstance(track, Track) or not track.path:
+            return
+        try:
+            self._library.record_play_by_path(track.path)
+        except Exception as exc:  # noqa: BLE001 - la música no se detiene
+            logger.warning("No se pudo registrar la reproducción: %s", exc)
 
     def _add_paths(self, paths: list[str]) -> None:
         """Añade pistas al modelo y a la lista; arranca si estaba vacía."""
@@ -531,7 +591,11 @@ class MainWindow(QMainWindow):
 
         if self._folder_loader is not None and self._folder_loader.isRunning():
             self._folder_loader.wait(5000)
+        if self._scanner is not None and self._scanner.isRunning():
+            self._scanner.cancel()
+            self._scanner.wait(10000)
         self._notifier.close_all()
         self._player.shutdown()
+        self._library.close()
         logger.info("Ventana cerrada; estado guardado")
         super().closeEvent(event)  # type: ignore[arg-type]

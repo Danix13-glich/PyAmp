@@ -1,13 +1,12 @@
 """Modelos de datos de PyAmp.
 
-En la Fase 1 solo vive :class:`Track`, el modelo de pista usado por la
-playlist, el player y las notificaciones. La Fase 2 amplía este módulo con
-``Album``, ``Artist``, ``Playlist`` y ``RadioStation`` para la biblioteca
-(SQLite).
+Viven los DTOs de la biblioteca: :class:`Track` (la pista, usada por la
+playlist, el player, las notificaciones y la BD), y desde la Fase 2
+también :class:`Artist`, :class:`Album` y :class:`Playlist`.
 
-Regla del proyecto: este dataclass es un DTO puro — sin Qt, sin VLC, sin
-SQLite. La UI y el player lo consumen; la capa de persistencia lo
-serializa.
+Regla del proyecto: son dataclasses puras — sin Qt, sin VLC, sin SQLite.
+La UI y el player los consumen; la capa de persistencia (``database.py``)
+los serializa. ``RadioStation`` llega en la Fase 6.
 """
 
 from __future__ import annotations
@@ -26,8 +25,9 @@ class Track:
     """Pista de audio (archivo local o entrada de playlist).
 
     Todos los campos son opcionales salvo ``path``: los metadatos se leen
-    con mutagen en el momento en que la pista empieza a sonar, nunca en
-    masa al abrir la UI (RNF: la UI nunca se bloquea).
+    con mutagen (en el player al sonar, o en el escáner de la biblioteca).
+    Los campos de gestión (``file_size``/``file_mtime``/``added_at``/...)
+    los rellena la biblioteca de la Fase 2.
     """
 
     path: str = ""
@@ -44,7 +44,11 @@ class Track:
     samplerate: int | None = None
     channels: int | None = None
     cover_path: str | None = None
-    # Gestión de BD (la rellena la Fase 2; aquí queda preparado).
+    # Gestión de archivo/BD (Fase 2).
+    file_size: int | None = None
+    file_mtime: int | None = None
+    added_at: str | None = None
+    last_played_at: str | None = None
     id: int | None = None
     play_count: int = 0
     # Campos extra que pueda aportar un .m3u (no persisten en BD).
@@ -75,3 +79,47 @@ class Track:
     def display_name(self) -> str:
         """Texto de fila de playlist: 'Título — Artista'."""
         return f"{self.display_title} — {self.display_artist}"
+
+
+@dataclass
+class Artist:
+    """Artista de la biblioteca (tabla ``artists``)."""
+
+    id: int | None = None
+    name: str = ""
+    track_count: int = 0
+
+    @property
+    def display_name(self) -> str:
+        """Nombre o 'Artista desconocido'."""
+        if self.name and self.name.strip():
+            return self.name
+        return UNKNOWN_ARTIST_TEXT
+
+
+@dataclass
+class Album:
+    """Álbum de la biblioteca (tabla ``albums``)."""
+
+    id: int | None = None
+    title: str = ""
+    artist_id: int | None = None
+    artist_name: str | None = None
+    year: str | None = None
+    cover_path: str | None = None
+    track_count: int = 0
+
+
+@dataclass
+class Playlist:
+    """Playlist persistida en la biblioteca (tablas ``playlists``).
+
+    La Fase 1 ya guarda/carga ``.m3u``; este modelo corresponde a las
+    playlists con nombre guardadas en SQLite (complementarias).
+    """
+
+    id: int | None = None
+    name: str = ""
+    created_at: str | None = None
+    track_count: int = 0
+    tracks: list[Track] = field(default_factory=list)
