@@ -57,7 +57,11 @@ y el proyecto sigue [SemVer](https://semver.org/lang/es/spec/v2.0.0.html).
   - Menú «Ver»: Canciones (Ctrl+1, por defecto) y Biblioteca (Ctrl+2) en `QStackedWidget` a todo el ancho, con vista persistida en `ui/view_mode`.
   - «Archivo → Abrir carpeta...» además lanza el escáner de biblioteca en segundo plano (`_start_scan` compartido), de modo que las canciones siempre aparecen en la vista Canciones.
   - Tests: favoritos/migración en `tests/test_database.py`; tabla, ajustes y espectro en `tests/test_library_panel.py` — total 54 tests.
-- **Fase 5 — ajustes de interfaz, MPRIS y letras**:
+- **Fase 5 — ajustes de interfaz, MPRIS y letras** (versión **0.1.2**):
+  - Política de versionado: cada componente MAYOR.MENOR.PARCHE es un solo
+    dígito (0–9); cada cambio del programa sube el parche y al desbordarse
+    conmuta el siguiente componente (0.1.9 → 0.2.0). Declarada en
+    `src/app/version.py` (fuente única) y `pyproject.toml`.
   - `src/app/core/mpris.py`: integración **MPRIS v2** (`org.mpris.MediaPlayer2.pyamp`, dbus-next en hilo propio con event loop asyncio) — el sistema (Plasma/KDE) reconoce a PyAmp como reproductor: widget multimedia del sistema, volumen global y teclas de hardware; comandos Play/Pause/PlayPause/Stop/Next/Previous/Seek/SetPosition, propiedades PlaybackStatus/Metadata/Volume/Position y señal Seeked; fallo silencioso si no hay sesión D-Bus.
   - `src/app/ui/lyrics_window.py`: «Ver → Ver letra» (Ctrl+L) — ventana modeless junto a la principal con **letra LRC local sincronizada** (busca `cancion.lrc` junto al audio y en `<datos>/PyAmp/lyrics/`); línea activa resaltada en negrita azul según la posición; parser `parse_lrc` puro (metatags ignorados, múltiples marcas por línea).
   - `src/app/ui/spectrum_widget.py`: ecualizador compacto — **5 barras** azules (tono fijo, brillo por nivel) y 32 px de alto.
