@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QMainWindow,
     QSlider,
+    QSplitter,
     QStyle,
     QToolButton,
     QVBoxLayout,
@@ -41,11 +42,14 @@ from PySide6.QtWidgets import (
 from app.core.player import STATE_PLAYING, STATE_STOPPED, Player
 from app.core.playlist import audio_filter_string, collect_audio_files
 from app.core.settings import Settings, get_settings
+from app.library.covers import extract_cover
 from app.library.database import LibraryDatabase
 from app.library.metadata import read_metadata
 from app.library.models import Track
 from app.library.scanner import ScannerThread
 from app.notifications.notifier import Notifier
+from app.ui.cover_widget import CoverLabel
+from app.ui.library_panel import LibraryPanel
 from app.utils.paths import PLAYLISTS_DIR
 from app.utils.time_format import format_time
 
@@ -123,8 +127,10 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
 
-        # --- fila de información (título / artista / tiempo) ---
+        # --- fila de información (carátula / título / artista / tiempo) ---
         info_row = QHBoxLayout()
+        self._cover_label = CoverLabel()
+        info_row.addWidget(self._cover_label, alignment=Qt.AlignmentFlag.AlignVCenter)
         text_col = QVBoxLayout()
         self._label_title = QLabel(WINDOW_TITLE)
         title_font = self._label_title.font()
@@ -198,16 +204,27 @@ class MainWindow(QMainWindow):
         self._slider_seek.sliderMoved.connect(self._on_seek_moved)
         layout.addWidget(self._slider_seek)
 
-        # --- lista simple ---
+        # --- splitter: biblioteca (izq.) | lista actual (der.) ---
         self._playlist_widget = QListWidget()
         self._playlist_widget.setAlternatingRowColors(True)
         self._playlist_widget.setToolTip("Lista de reproducción (doble clic para reproducir)")
-        layout.addWidget(self._playlist_widget, stretch=1)
+
+        self._library_panel = LibraryPanel(self._library)
+        self._splitter = QSplitter(Qt.Orientation.Horizontal)
+        self._splitter.addWidget(self._library_panel)
+        self._splitter.addWidget(self._playlist_widget)
+        self._splitter.setStretchFactor(0, 2)
+        self._splitter.setStretchFactor(1, 1)
+        self._splitter.setCollapsible(0, False)
+        self._splitter.setCollapsible(1, False)
+        self._splitter.setSizes([420, 260])
+        layout.addWidget(self._splitter, stretch=1)
 
         self.setCentralWidget(central)
         self._build_menus()
         self._on_state_changed(STATE_STOPPED)
         self._update_mute_icon(self._settings.muted)
+        self._library_panel.refresh()
 
     def _build_menus(self) -> None:
         """Menú Archivo con las operaciones de playlist."""
@@ -282,6 +299,8 @@ class MainWindow(QMainWindow):
         player.track_changed.connect(self._record_library_play)
 
         self._playlist_widget.itemActivated.connect(self._on_item_activated)
+        self._library_panel.track_activated.connect(self._on_library_track_activated)
+        self._library_panel.selection_changed.connect(self._on_library_selection_changed)
 
         if not player.is_available:
             self.statusBar().showMessage(player.backend_error or "Audio no disponible", 0)
@@ -366,6 +385,7 @@ class MainWindow(QMainWindow):
         if summary.get("cancelled"):
             message += " (escaneo cancelado)"
         self.statusBar().showMessage(message, ERROR_TIMEOUT_MS)
+        self._library_panel.refresh()
 
     def _record_library_play(self, track: object) -> None:
         """Suma una reproducción en la biblioteca (nunca rompe el playback)."""
@@ -375,6 +395,51 @@ class MainWindow(QMainWindow):
             self._library.record_play_by_path(track.path)
         except Exception as exc:  # noqa: BLE001 - la música no se detiene
             logger.warning("No se pudo registrar la reproducción: %s", exc)
+
+    def _on_library_track_activated(self, track: object, context: object) -> None:
+        """Doble clic en la biblioteca: el contexto visible pasa a playlist."""
+        if not isinstance(track, Track) or not isinstance(context, list):
+            return
+        tracks = [t for t in context if isinstance(t, Track)]
+        if not tracks:
+            return
+        try:
+            start = tracks.index(track)
+        except ValueError:
+            start = 0
+        self._player.replace_playlist(tracks, start)
+        self._rebuild_rows()
+        logger.info(
+            "Biblioteca: reproduciendo %r (%d pistas en contexto)",
+            track.display_title,
+            len(tracks),
+        )
+
+    def _on_library_selection_changed(self, selection: object) -> None:
+        """Selección en la biblioteca → vista previa de carátula."""
+        cover = getattr(selection, "cover_path", None)
+        if cover:
+            self._cover_label.set_cover(cover)
+        else:
+            self._show_current_cover()
+
+    def _show_current_cover(self) -> None:
+        """Carátula de la pista sonando (caché de covers, Fase 2)."""
+        current = self._player.current_track
+        if current is None:
+            self._cover_label.clear_cover()
+            return
+        self._cover_label.set_cover(self._cover_for(current))
+
+    def _cover_for(self, track: Track) -> str | None:
+        """Ruta de carátula de la pista; extrae a caché si aún no está."""
+        if track.cover_path:
+            return track.cover_path
+        try:
+            return extract_cover(track.path)
+        except Exception as exc:  # noqa: BLE001 - la música no se detiene
+            logger.debug("Sin carátula para %s: %s", track.path, exc)
+            return None
 
     def _add_paths(self, paths: list[str]) -> None:
         """Añade pistas al modelo y a la lista; arranca si estaba vacía."""
@@ -459,6 +524,7 @@ class MainWindow(QMainWindow):
         self._label_title.setToolTip(track.path)
         self._label_artist.setText(track.display_artist)
         self._label_artist.setToolTip(track.path)
+        self._cover_label.set_cover(self._cover_for(track))
 
         if track.duration_ms > 0:
             self._duration_ms = track.duration_ms
@@ -551,6 +617,10 @@ class MainWindow(QMainWindow):
         if geometry is not None:
             self.restoreGeometry(geometry)
 
+        splitter_state = self._settings.window_splitter_state
+        if splitter_state is not None:
+            self._splitter.restoreState(splitter_state)
+
         restored: list[Track] = []
         for path in self._settings.playlist_paths:
             if Path(path).is_file():
@@ -586,6 +656,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: object) -> None:
         """Guarda estado y apaga todo de forma ordenada."""
         self._settings.window_geometry = self.saveGeometry()
+        self._settings.window_splitter_state = self._splitter.saveState()
         self._settings.playlist_paths = [track.path for track in self._player.playlist]
         self._settings.playlist_index = self._player.playlist.current_index
 

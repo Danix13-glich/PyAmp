@@ -39,6 +39,14 @@ y el proyecto sigue [SemVer](https://semver.org/lang/es/spec/v2.0.0.html).
   - `src/app/ui/main_window.py`: menú «Archivo → Escanear carpeta en biblioteca...» con progreso en la barra de estado, y wiring `track_changed → record_play_by_path` (estadísticas en cada cambio real de pista).
   - `AUDIO_EXTENSIONS` movido de `core/playlist.py` a `library/metadata.py` (fuente única; la playlist lo reimporta por compatibilidad).
   - Tests: `tests/test_database.py` (esquema, CRUD, cascadas, playlists, escáner incremental/cancelación) — total 32 tests.
+- **Fase 3 — UI de biblioteca**:
+  - `src/app/ui/library_panel.py`: `LibraryPanel` con árbol **Artista → Álbum → Pista** de carga perezosa (artistas al mostrar; álbumes y pistas al expandir), buckets «(Sin artista)»/«(Sin álbum)», búsqueda en vivo con debounce (vista plana, tope 500 con aviso), contador de totales y botón de refresco; señales `track_activated(track, contexto)` y `selection_changed`.
+  - `src/app/ui/cover_widget.py`: `CoverLabel` — carátula cuadrada 64 px escalada con placeholder.
+  - `src/app/core/player.py`: `replace_playlist(tracks, start_index)` — la biblioteca reemplaza la playlist visible y reproduce (auto-avance continúa en ese contexto).
+  - `src/app/library/database.py`: consultas del árbol (`albums_by_artist`, `tracks_by_album`, `tracks_without_album_by_artist`, `count_tracks_without_artist`).
+  - `src/app/ui/main_window.py`: splitter biblioteca|playlist, carátula en la fila de información (pista sonando o selección), wiring doble clic → playlist, refresco automático tras escanear.
+  - `src/app/core/settings.py`: clave `window/splitter_state` (tamaño del splitter al reabrir).
+  - Tests: `tests/test_library_panel.py` (árbol perezoso, búsqueda, activación con contexto, selección, carátulas, `replace_playlist`) — total 42 tests.
 
 ### Fixed
 - Workaround en `VlcBackend`: libVLC (Fedora 44, VLC 3.0.23) hace SIGSEGV si se llama `audio_set_volume`/`audio_set_mute` antes de existir la salida de audio; el volumen/mute se difiere hasta que `is_playing()` es True.

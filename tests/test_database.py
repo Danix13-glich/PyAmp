@@ -12,7 +12,7 @@ import wave
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtWidgets import QApplication
 
 from app.library.database import (
     SCHEMA_VERSION,
@@ -27,11 +27,11 @@ from app.library.scanner import ScannerThread
 
 
 @pytest.fixture(scope="module")
-def qapp() -> QCoreApplication:
-    """QCoreApplication único para las señales de QThread (si no existe)."""
-    app = QCoreApplication.instance()
+def qapp() -> QApplication:
+    """QApplication única offscreen para las señales de QThread y widgets."""
+    app = QApplication.instance()
     if app is None:
-        app = QCoreApplication([])
+        app = QApplication([])
     return app
 
 
@@ -240,7 +240,7 @@ def test_playlist_errors(db: LibraryDatabase) -> None:
 
 
 # ----------------------------------------------------------------- escáner
-def test_scanner_full_lifecycle(qapp: QCoreApplication, tmp_path: Path) -> None:
+def test_scanner_full_lifecycle(qapp: QApplication, tmp_path: Path) -> None:
     folder = tmp_path / "musica"
     folder.mkdir()
     make_wav(folder / "a.wav", title="Alfa", artist="Uno")
@@ -291,7 +291,7 @@ def test_scanner_full_lifecycle(qapp: QCoreApplication, tmp_path: Path) -> None:
     database.close()
 
 
-def test_scanner_cancel_before_run_keeps_db(qapp: QCoreApplication, tmp_path: Path) -> None:
+def test_scanner_cancel_before_run_keeps_db(qapp: QApplication, tmp_path: Path) -> None:
     folder = tmp_path / "musica"
     folder.mkdir()
     make_wav(folder / "a.wav")
@@ -315,7 +315,7 @@ def test_scanner_cancel_before_run_keeps_db(qapp: QCoreApplication, tmp_path: Pa
     database.close()
 
 
-def test_scanner_reports_invalid_folder(qapp: QCoreApplication, tmp_path: Path) -> None:
+def test_scanner_reports_invalid_folder(qapp: QApplication, tmp_path: Path) -> None:
     scanner = ScannerThread(str(tmp_path / "x.db"), str(tmp_path / "no-existe"))
     errors: list[str] = []
     summaries: list[dict] = []

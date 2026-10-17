@@ -174,6 +174,29 @@ class Player(QObject):
             self._playlist.add_many(tracks)
         return tracks
 
+    def replace_playlist(self, tracks: list[Track], start_index: int = 0) -> bool:
+        """Reemplaza la playlist y reproduce ``tracks[start_index]``.
+
+        Lo usa la biblioteca (Fase 3): doble clic → el contexto visible
+        (álbum completo o resultados de búsqueda) pasa a ser la playlist y
+        suena la pista elegida; el auto-avance continúa en ese contexto.
+
+        Args:
+            tracks: Nuevas pistas (pueden venir de la BD, metadatos ya
+                leídos).
+            start_index: Índice a reproducir (recortado al rango válido).
+
+        Returns:
+            True si empezó a reproducir.
+        """
+        if not tracks:
+            self.error_occurred.emit("replace_playlist: la lista está vacía")
+            return False
+        index = max(0, min(start_index, len(tracks) - 1))
+        self._playlist.clear()
+        self._playlist.add_many(tracks)
+        return self.play_index(index)
+
     def load_playlist(self, path: str | Path) -> int:
         """Reemplaza la playlist con un ``.m3u`` y selecciona la primera pista.
 

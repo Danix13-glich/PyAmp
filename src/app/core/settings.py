@@ -25,6 +25,7 @@ KEY_PLAYLIST_INDEX = "playlist/current_index"
 KEY_NOTIFICATIONS_ENABLED = "notifications/enabled"
 KEY_NOTIFICATIONS_TIMEOUT_MS = "notifications/timeout_ms"
 KEY_WINDOW_GEOMETRY = "window/geometry"
+KEY_WINDOW_SPLITTER = "window/splitter_state"
 
 DEFAULT_VOLUME = 100
 DEFAULT_TIMEOUT_MS = 5000
@@ -160,6 +161,18 @@ class Settings:
     @window_geometry.setter
     def window_geometry(self, geometry: QByteArray) -> None:
         self.set_value(KEY_WINDOW_GEOMETRY, geometry)
+
+    @property
+    def window_splitter_state(self) -> QByteArray | None:
+        """Estado del splitter biblioteca/playlist (None la primera vez)."""
+        value = self._settings.value(KEY_WINDOW_SPLITTER)
+        if isinstance(value, QByteArray):
+            return value
+        return None
+
+    @window_splitter_state.setter
+    def window_splitter_state(self, state: QByteArray) -> None:
+        self.set_value(KEY_WINDOW_SPLITTER, state)
 
 
 _instance: Settings | None = None

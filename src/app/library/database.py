@@ -446,6 +446,68 @@ class LibraryDatabase:
             for row in rows
         ]
 
+    # ------------------------------------------- consultas del árbol (Fase 3)
+    def albums_by_artist(self, artist_id: int | None) -> list[Album]:
+        """Álbumes con pistas de ese artista (None → pistas sin artista)."""
+        if artist_id is None:
+            where = "al.artist_id IS NULL"
+            params: tuple[object, ...] = ()
+        else:
+            where = "al.artist_id = ?"
+            params = (artist_id,)
+        rows = self._conn.execute(
+            f"""SELECT al.id, al.title, al.artist_id, ar.name AS artist_name,
+                       al.year, al.cover_path, COUNT(t.id) AS track_count
+                FROM albums al
+                LEFT JOIN artists ar ON ar.id = al.artist_id
+                LEFT JOIN tracks t ON t.album_id = al.id
+                WHERE {where}
+                GROUP BY al.id
+                ORDER BY al.title COLLATE NOCASE""",
+            params,
+        ).fetchall()
+        return [
+            Album(
+                id=row["id"],
+                title=row["title"],
+                artist_id=row["artist_id"],
+                artist_name=row["artist_name"],
+                year=row["year"],
+                cover_path=row["cover_path"],
+                track_count=row["track_count"],
+            )
+            for row in rows
+        ]
+
+    def tracks_by_album(self, album_id: int) -> list[Track]:
+        """Pistas de un álbum ordenadas por nº de pista."""
+        rows = self._conn.execute(
+            "SELECT * FROM tracks WHERE album_id = ? " "ORDER BY track_no, title COLLATE NOCASE",
+            (album_id,),
+        ).fetchall()
+        return [row_to_track(row) for row in rows]
+
+    def tracks_without_album_by_artist(self, artist_id: int | None) -> list[Track]:
+        """Pistas del artista (None → sin artista) que no tienen álbum."""
+        if artist_id is None:
+            where = "album_id IS NULL AND artist_id IS NULL"
+            params: tuple[object, ...] = ()
+        else:
+            where = "album_id IS NULL AND artist_id = ?"
+            params = (artist_id,)
+        rows = self._conn.execute(
+            f"SELECT * FROM tracks WHERE {where} ORDER BY title COLLATE NOCASE",
+            params,
+        ).fetchall()
+        return [row_to_track(row) for row in rows]
+
+    def count_tracks_without_artist(self) -> int:
+        """Pistas sin artista asignado (bucket «(Sin artista)» del árbol)."""
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM tracks WHERE artist_id IS NULL"
+        ).fetchone()
+        return int(row["n"]) if row is not None else 0
+
     def stats(self) -> dict[str, int]:
         """Contadores de la biblioteca (pistas, artistas, álbumes, listas)."""
         result: dict[str, int] = {}
