@@ -19,6 +19,7 @@ Reglas que respeta:
 from __future__ import annotations
 
 import logging
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -54,6 +55,7 @@ from app.library.scanner import ScannerThread
 from app.notifications.notifier import Notifier
 from app.ui.cover_widget import CoverLabel
 from app.ui.library_panel import LibraryPanel
+from app.ui.lyrics_window import LyricsWindow
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.songs_table import SongsTable
 from app.ui.spectrum_widget import SpectrumWidget
@@ -66,6 +68,15 @@ logger = logging.getLogger(__name__)
 WINDOW_TITLE = "PyAmp"
 ERROR_TIMEOUT_MS = 10000
 VOLUME_SLIDER_WIDTH = 140
+
+#: Ancho de la zona de título/artista (ajuste Fase 5).
+TEXT_COL_WIDTH = 148
+
+#: Tamaño inicial de la ventana (ajuste Fase 5: 630×485).
+WINDOW_INITIAL_SIZE = (630, 485)
+
+#: Separación (px) entre la ventana principal y la de letra.
+LYRICS_GAP_PX = 8
 
 
 class _FolderLoader(QThread):
@@ -94,7 +105,11 @@ class _FolderLoader(QThread):
 
 
 class MainWindow(QMainWindow):
-    """Ventana principal con la UI mínima de la Fase 1."""
+    """Ventana principal con la UI de la Fase 5."""
+
+    #: Peticiones MPRIS llegadas del bus (hilo ajeno → hilo de UI).
+    _raise_requested = Signal()
+    _quit_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -119,16 +134,20 @@ class MainWindow(QMainWindow):
         self._library = LibraryDatabase()
         self._duration_ms = 0
         self._last_folder = str(Path.home())
+        self._mpris: Any = None  # MprisAdapter (solo Linux; ver _init_mpris)
+        self._lyrics_window: LyricsWindow | None = None
 
         self._build_ui()
         self._connect_signals()
         self._restore_state()
+        self._init_mpris()
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:
-        """Construye el layout mínimo (sin lógica de negocio)."""
+        """Construye el layout (sin lógica de negocio)."""
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(480, 360)
+        self.resize(*WINDOW_INITIAL_SIZE)
 
         central = QWidget(self)
         layout = QVBoxLayout(central)
@@ -150,17 +169,25 @@ class MainWindow(QMainWindow):
         self._label_artist.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         text_col.addWidget(self._label_title)
         text_col.addWidget(self._label_artist)
-        info_row.addLayout(text_col, stretch=1)
+        text_wrap = QWidget()
+        text_wrap.setFixedWidth(TEXT_COL_WIDTH)
+        text_wrap.setLayout(text_col)
+        info_row.addWidget(text_wrap, stretch=1)
 
         self._label_time = QLabel("0:00 / 0:00")
         fixed_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         self._label_time.setFont(fixed_font)
         info_row.addWidget(self._label_time, alignment=Qt.AlignmentFlag.AlignVCenter)
-
-        self._label_state = QLabel("■ Detenido")
-        self._label_state.setToolTip("Estado de reproducción")
-        info_row.addWidget(self._label_state, alignment=Qt.AlignmentFlag.AlignVCenter)
         layout.addLayout(info_row)
+
+        # --- barra de posición justo debajo del tiempo (ajuste Fase 5) ---
+        self._slider_seek = QSlider(Qt.Orientation.Horizontal)
+        self._slider_seek.setRange(0, 0)
+        self._slider_seek.setToolTip("Posición de reproducción")
+        self._slider_seek.setAccessibleName("Posición")
+        self._slider_seek.sliderReleased.connect(self._on_seek_released)
+        self._slider_seek.sliderMoved.connect(self._on_seek_moved)
+        layout.addWidget(self._slider_seek)
 
         # --- transporte: play/pausa unificado + favorito + volumen ---
         transport_row = QHBoxLayout()
@@ -170,16 +197,12 @@ class MainWindow(QMainWindow):
         self._button_play = self._make_button(
             QStyle.StandardPixmap.SP_MediaPlay, "Reproducir (F10)", self._on_play_clicked
         )
-        self._button_stop = self._make_button(
-            QStyle.StandardPixmap.SP_MediaStop, "Detener", self._player.stop
-        )
         self._button_next = self._make_button(
             QStyle.StandardPixmap.SP_MediaSkipForward, "Siguiente (F11)", self._player.next
         )
         for button in (
             self._button_prev,
             self._button_play,
-            self._button_stop,
             self._button_next,
         ):
             transport_row.addWidget(button)
@@ -211,17 +234,9 @@ class MainWindow(QMainWindow):
         transport_row.addWidget(self._slider_volume)
         layout.addLayout(transport_row)
 
-        # --- seek ---
-        self._slider_seek = QSlider(Qt.Orientation.Horizontal)
-        self._slider_seek.setRange(0, 0)
-        self._slider_seek.setToolTip("Posición de reproducción")
-        self._slider_seek.setAccessibleName("Posición")
-        self._slider_seek.sliderReleased.connect(self._on_seek_released)
-        self._slider_seek.sliderMoved.connect(self._on_seek_moved)
-        layout.addWidget(self._slider_seek)
-
-        # --- espectrograma (numpy + QPainter, captura real del sink) ---
+        # --- espectrograma (visible según el menú Ver) ---
         self._spectrum = SpectrumWidget()
+        self._spectrum.setVisible(self._settings.show_spectrum)
         layout.addWidget(self._spectrum)
 
         # --- vistas a todo el ancho (menú Ver): canciones | biblioteca ---
@@ -302,6 +317,19 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self._action_view_canciones)
         view_menu.addAction(self._action_view_biblioteca)
 
+        view_menu.addSeparator()
+
+        self._action_show_spectrum = QAction("Mostrar es&trograma", self)
+        self._action_show_spectrum.setCheckable(True)
+        self._action_show_spectrum.setChecked(self._settings.show_spectrum)
+        self._action_show_spectrum.triggered.connect(self._on_toggle_spectrum)
+        view_menu.addAction(self._action_show_spectrum)
+
+        action_lyrics = QAction("Ver &letra", self)
+        action_lyrics.setShortcut(QKeySequence("Ctrl+L"))
+        action_lyrics.triggered.connect(self._on_show_lyrics)
+        view_menu.addAction(action_lyrics)
+
         # --- menú Editar ---
         edit_menu = self.menuBar().addMenu("&Editar")
         action_settings = QAction("&Ajustes...", self)
@@ -376,6 +404,10 @@ class MainWindow(QMainWindow):
         player.error_occurred.connect(self._on_error)
         # La biblioteca acumula estadísticas en cada cambio de pista real.
         player.track_changed.connect(self._record_library_play)
+
+        # Peticiones MPRIS (llegan desde el hilo del bus → hilo de UI).
+        self._raise_requested.connect(self._raise_and_activate)
+        self._quit_requested.connect(self.close)
 
         self._songs_table.track_activated.connect(self._on_library_track_activated)
         self._songs_table.favorite_toggled.connect(self._on_favorite_row_toggled)
@@ -594,6 +626,8 @@ class MainWindow(QMainWindow):
         self._player.playlist.clear()
         self._label_title.setText(WINDOW_TITLE)
         self._label_artist.setText("—")
+        if self._lyrics_window is not None:
+            self._lyrics_window.reset()
         self.statusBar().showMessage("Playlist vaciada", ERROR_TIMEOUT_MS)
 
     # ------------------------------------------------------ slots del player
@@ -603,12 +637,13 @@ class MainWindow(QMainWindow):
             self._show_track(track)
 
     def _show_track(self, track: Track) -> None:
-        """Actualiza etiquetas, carátula y estado del favorito."""
+        """Actualiza etiquetas, carátula, favorito, letra y MPRIS."""
         self._label_title.setText(track.display_title)
         self._label_title.setToolTip(track.path)
         self._label_artist.setText(track.display_artist)
         self._label_artist.setToolTip(track.path)
-        self._cover_label.set_cover(self._cover_for(track))
+        cover = self._cover_for(track)
+        self._cover_label.set_cover(cover)
 
         if track.duration_ms > 0:
             self._duration_ms = track.duration_ms
@@ -624,34 +659,38 @@ class MainWindow(QMainWindow):
                 logger.debug("Sin estado de favorito: %s", exc)
         self._button_favorite.setChecked(favorite)
 
+        if self._lyrics_window is not None and self._lyrics_window.isVisible():
+            self._lyrics_window.show_track(track)
+        if self._mpris is not None:
+            self._mpris.update_metadata(cover or "")
+
     def _on_state_changed(self, state: str) -> None:
-        """Refleja el estado: icono del play unificado, etiqueta y espectro."""
+        """Refleja el estado en el icono del play unificado y el espectro."""
         playing = state == STATE_PLAYING
         if playing:
             icon = QStyle.StandardPixmap.SP_MediaPause
             tooltip = "Pausar (F10)"
-            state_text = "▶ Reproduciendo"
         elif state == STATE_PAUSED:
             icon = QStyle.StandardPixmap.SP_MediaPlay
             tooltip = "Reanudar (F10)"
-            state_text = "⏸ En pausa"
         else:
             icon = QStyle.StandardPixmap.SP_MediaPlay
             tooltip = "Reproducir (F10)"
-            state_text = "■ Detenido"
         self._button_play.setIcon(self.style().standardIcon(icon))
         self._button_play.setToolTip(tooltip)
         self._button_play.setAccessibleName(tooltip)
-        self._label_state.setText(state_text)
-        self._button_stop.setEnabled(state != STATE_STOPPED)
         self._button_prev.setEnabled(state != STATE_STOPPED)
         self._button_next.setEnabled(state != STATE_STOPPED)
         self._spectrum.set_playing(playing)
+        if self._mpris is not None:
+            self._mpris.update_playback_status()
 
     def _on_position_changed(self, position_ms: int) -> None:
         if not self._slider_seek.isSliderDown():
             self._slider_seek.setValue(position_ms)
             self._update_time_label(position_ms)
+        if self._lyrics_window is not None and self._lyrics_window.isVisible():
+            self._lyrics_window.sync_position(position_ms)
 
     def _on_duration_changed(self, duration_ms: int) -> None:
         self._duration_ms = max(0, duration_ms)
@@ -663,6 +702,8 @@ class MainWindow(QMainWindow):
             self._slider_volume.blockSignals(True)
             self._slider_volume.setValue(volume)
             self._slider_volume.blockSignals(False)
+        if self._mpris is not None:
+            self._mpris.update_volume()
 
     def _on_error(self, message: str) -> None:
         """Error no fatal: se muestra en la barra de estado; nada crashea."""
@@ -672,6 +713,8 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------- slots de sliders
     def _on_seek_released(self) -> None:
         self._player.seek(self._slider_seek.value())
+        if self._mpris is not None:
+            self._mpris.emit_seeked(self._slider_seek.value())
 
     def _on_seek_moved(self, value: int) -> None:
         self._update_time_label(value)
@@ -777,6 +820,62 @@ class MainWindow(QMainWindow):
             ERROR_TIMEOUT_MS,
         )
 
+    # ------------------------------------------------- Fase 5: Ver/espectro/letra
+    def _on_toggle_spectrum(self, checked: bool) -> None:
+        """Ver → Mostrar espectrograma: oculta/muestra y persiste."""
+        self._settings.show_spectrum = checked
+        self._spectrum.setVisible(checked)
+        if checked:
+            self._spectrum.set_playing(self._player.state == STATE_PLAYING)
+        else:
+            self._spectrum.set_playing(False)
+            self._spectrum.shutdown()  # no dejar captura corriendo oculta
+        self.statusBar().showMessage(
+            "Espectrograma visible" if checked else "Espectrograma oculto",
+            ERROR_TIMEOUT_MS,
+        )
+
+    def _on_show_lyrics(self) -> None:
+        """Ver → Ver letra: ventana al lado con la letra de la pista actual."""
+        if self._lyrics_window is None:
+            self._lyrics_window = LyricsWindow(self)
+            self._lyrics_window.destroyed.connect(self._on_lyrics_destroyed)
+        window = self._lyrics_window
+        window.show_track(self._player.current_track)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        # Justo al lado de la principal (el compositor puede ajustarlo).
+        window.move(self.x() + self.width() + LYRICS_GAP_PX, self.y())
+
+    def _on_lyrics_destroyed(self, *_args: Any) -> None:
+        """La ventana de letra se cerró: olvidar la referencia."""
+        self._lyrics_window = None
+
+    def _init_mpris(self) -> None:
+        """Integración MPRIS (solo Linux; silenciosa si no hay D-Bus)."""
+        if sys.platform != "linux":
+            return
+        try:
+            from app.core.mpris import MprisAdapter
+
+            adapter = MprisAdapter(
+                self._player,
+                self._settings,
+                on_raise=self._raise_requested.emit,
+                on_quit=self._quit_requested.emit,
+            )
+            adapter.start()
+            self._mpris = adapter
+        except Exception as exc:  # noqa: BLE001 - la app funciona sin MPRIS
+            logger.info("MPRIS deshabilitado: %s", exc)
+
+    def _raise_and_activate(self) -> None:
+        """Raise vía MPRIS: trae la ventana al frente."""
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
     # -------------------------------------------------------------- helpers
     def _update_time_label(self, position_ms: int) -> None:
         self._label_time.setText(f"{format_time(position_ms)} / {format_time(self._duration_ms)}")
@@ -838,6 +937,10 @@ class MainWindow(QMainWindow):
         if self._scanner is not None and self._scanner.isRunning():
             self._scanner.cancel()
             self._scanner.wait(10000)
+        if self._lyrics_window is not None:
+            self._lyrics_window.close()
+        if self._mpris is not None:
+            self._mpris.shutdown()
         self._spectrum.shutdown()
         self._notifier.close_all()
         self._player.shutdown()

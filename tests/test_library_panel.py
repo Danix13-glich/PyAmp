@@ -27,6 +27,7 @@ from app.ui.library_panel import (
     ROLE_TRACK,
     LibraryPanel,
 )
+from app.ui.lyrics_window import LyricsWindow, find_lrc_path, parse_lrc
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.songs_table import (
     COLUMN_DURATION,
@@ -387,3 +388,82 @@ def test_spectrum_widget_start_stop_and_shutdown_are_safe(qapp: QApplication) ->
     widget.shutdown()
     widget.shutdown()  # idempotente (closeEvent puede repetirse en tests)
     assert widget.available is not None  # ya quedó resuelto
+
+
+def test_spectrum_widget_is_compact_and_blue_bars(qapp: QApplication) -> None:
+    """Ajuste Fase 5: 5 barras y32 px de alto mínimo."""
+    widget = SpectrumWidget()
+    assert BAR_COUNT == 5
+    assert widget.minimumHeight() == 32
+
+
+# ------------------------------------------------------- letras (Fase 5)
+def test_parse_lrc_extracts_and_sorts_entries() -> None:
+    text = "\n".join(
+        [
+            "[ti:Canción]",
+            "[ar:Artista]",
+            "[00:12.50]Segunda línea",
+            "[00:01]Primera línea",
+            "[00:01.5]Otra marca de la misma línea",
+            "Sin marca de tiempo",
+        ]
+    )
+
+    entries = parse_lrc(text)
+
+    assert entries == [
+        (1000, "Primera línea"),
+        (1500, "Otra marca de la misma línea"),
+        (12500, "Segunda línea"),
+    ]
+
+
+def test_find_lrc_path_prefers_sidecar(tmp_path: Path) -> None:
+    audio = tmp_path / "tema-sidecar-test.mp3"
+    audio.write_bytes(b"")
+    assert find_lrc_path(str(audio)) is None
+
+    sidecar = tmp_path / "tema-sidecar-test.lrc"
+    sidecar.write_text("[00:01]Hola", encoding="utf-8")
+    assert find_lrc_path(str(audio)) == sidecar
+
+
+def test_lyrics_window_shows_lrc_and_syncs(qapp: QApplication, tmp_path: Path) -> None:
+    audio = tmp_path / "tema-sync-test.mp3"
+    audio.write_bytes(b"")
+    (tmp_path / "tema-sync-test.lrc").write_text(
+        "[00:00]Intro\n[00:10]Estrofa\n[01:00]Final\n", encoding="utf-8"
+    )
+    window = LyricsWindow()
+
+    window.show_track(Track(path=str(audio), title="Tema"))
+
+    assert window.entries == [(0, "Intro"), (10000, "Estrofa"), (60000, "Final")]
+    assert window.active_row == -1
+
+    window.sync_position(500)
+    assert window.active_row == 0
+    window.sync_position(12000)
+    assert window.active_row == 1
+    window.sync_position(90000)  # tras el final → última línea
+    assert window.active_row == 2
+    window.sync_position(12000)  # retroceso (seek atrás) también sigue
+    assert window.active_row == 1
+
+    window.reset()
+    assert window.entries == []
+
+
+def test_lyrics_window_without_lrc_is_harmless(qapp: QApplication, tmp_path: Path) -> None:
+    audio = tmp_path / "tema-sinletra-test.mp3"
+    audio.write_bytes(b"")
+    window = LyricsWindow()
+
+    window.show_track(Track(path=str(audio), title="Sin letra"))
+
+    assert window.entries == []
+    window.sync_position(1000)  # sin entradas: no-op sin crash
+    assert window.active_row == -1
+    window.show_track(None)  # sin pista
+    assert window.entries == []

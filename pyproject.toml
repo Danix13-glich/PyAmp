@@ -78,6 +78,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]
+# dbus-next exige anotaciones-string D-Bus ("b", "a{sv}"...) que ruff
+# interpreta como Python: exención específica del adapter MPRIS.
+"src/app/core/mpris.py" = ["F821", "F722", "UP037"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -90,6 +93,12 @@ ignore_missing_imports = true
 no_implicit_optional = true
 check_untyped_defs = true
 disallow_untyped_defs = false
+
+# Mismo motivo que la exención de ruff: las anotaciones-string D-Bus y los
+# métodos emit_* generados en tiempo de ejecución por dbus-next.
+[[tool.mypy.overrides]]
+module = "app.core.mpris"
+disable_error_code = ["name-defined", "no-redef", "attr-defined", "valid-type", "syntax", "misc"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

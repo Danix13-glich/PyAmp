@@ -57,11 +57,23 @@ y el proyecto sigue [SemVer](https://semver.org/lang/es/spec/v2.0.0.html).
   - Menú «Ver»: Canciones (Ctrl+1, por defecto) y Biblioteca (Ctrl+2) en `QStackedWidget` a todo el ancho, con vista persistida en `ui/view_mode`.
   - «Archivo → Abrir carpeta...» además lanza el escáner de biblioteca en segundo plano (`_start_scan` compartido), de modo que las canciones siempre aparecen en la vista Canciones.
   - Tests: favoritos/migración en `tests/test_database.py`; tabla, ajustes y espectro en `tests/test_library_panel.py` — total 54 tests.
+- **Fase 5 — ajustes de interfaz, MPRIS y letras**:
+  - `src/app/core/mpris.py`: integración **MPRIS v2** (`org.mpris.MediaPlayer2.pyamp`, dbus-next en hilo propio con event loop asyncio) — el sistema (Plasma/KDE) reconoce a PyAmp como reproductor: widget multimedia del sistema, volumen global y teclas de hardware; comandos Play/Pause/PlayPause/Stop/Next/Previous/Seek/SetPosition, propiedades PlaybackStatus/Metadata/Volume/Position y señal Seeked; fallo silencioso si no hay sesión D-Bus.
+  - `src/app/ui/lyrics_window.py`: «Ver → Ver letra» (Ctrl+L) — ventana modeless junto a la principal con **letra LRC local sincronizada** (busca `cancion.lrc` junto al audio y en `<datos>/PyAmp/lyrics/`); línea activa resaltada en negrita azul según la posición; parser `parse_lrc` puro (metatags ignorados, múltiples marcas por línea).
+  - `src/app/ui/spectrum_widget.py`: ecualizador compacto — **5 barras** azules (tono fijo, brillo por nivel) y 32 px de alto.
+  - Menú Ver: «Mostrar espectrograma» (checkable, persistido en `ui/show_spectrum`; al ocultarse se detiene la captura) y «Ver letra».
+  - Interfaz: tamaño inicial **630×485**, zona de título/artista fijada a **148 px**, barra de posición **justo debajo del tiempo**, y eliminados el botón de detener (■) y el texto de estado «▶ Reproduciendo / ⏸ En pausa / ■ Detenido» (el estado sigue en el icono del play unificado).
+  - `src/app/utils/paths.py`: `LYRICS_DIR` (`<datos>/PyAmp/lyrics/`).
+  - `src/app/core/settings.py`: clave `ui/show_spectrum` (espectrograma visible por defecto).
+  - Tests: letras (parser, sidecar, sincronización) en `tests/test_library_panel.py`; regresiones de posición y play/pausa en `tests/test_player.py` — total 61 tests.
 
 ### Removed
 - (Fase 4) Splitter biblioteca|playlist y la lista lateral visible: ahora hay UNA vista a todo el ancho; la cola interna se controla con el transporte (▶/siguiente/anterior). La clave `window/splitter_state` se sustituye por `ui/view_mode`.
+- (Fase 5) Botón de detener (■) de la barra de transporte y la etiqueta de texto «▶ Reproduciendo / ⏸ En pausa / ■ Detenido».
 
 ### Fixed
+- `VlcBackend.position_ms()` usaba `get_position()` (fracción 0..1) × 1000: en archivos largos la barra de posición y el temporizador quedaban **congelados** (avanzaban ~192× más lento en un MP3 de 3 min). Ahora usa `get_time()` (ms directos) con fallback fracción×duración.
+- Los E2E ya no tocan la configuración real: usan `XDG_CONFIG_HOME`/`XDG_DATA_HOME` aislados (los anteriores habían dejado la playlist de prueba «Rojo/Azul» y una geometría offscreen en el QSettings real; se limpiaron).
 - Workaround en `VlcBackend`: libVLC (Fedora 44, VLC 3.0.23) hace SIGSEGV si se llama `audio_set_volume`/`audio_set_mute` antes de existir la salida de audio; el volumen/mute se difiere hasta que `is_playing()` es True.
 - `_stringify` de metadatos: `ID3TimeStamp.text` es `str` (no se debe iterar como lista; provocaba año `"2"` en lugar de `"2024"`).
 

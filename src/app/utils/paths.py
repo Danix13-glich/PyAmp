@@ -48,6 +48,7 @@ DATA_DIR: Path = _base_data_dir() / APP_NAME
 LOGS_DIR: Path = DATA_DIR / "logs"
 COVERS_DIR: Path = DATA_DIR / "covers"
 PLAYLISTS_DIR: Path = DATA_DIR / "playlists"
+LYRICS_DIR: Path = DATA_DIR / "lyrics"
 DATABASE_FILE: Path = DATA_DIR / "library.db"
 
 
@@ -56,5 +57,5 @@ def ensure_app_dirs() -> None:
 
     Idempotente: llamarlo tantas veces como se quiera es seguro.
     """
-    for directory in (CONFIG_DIR, DATA_DIR, LOGS_DIR, COVERS_DIR, PLAYLISTS_DIR):
+    for directory in (CONFIG_DIR, DATA_DIR, LOGS_DIR, COVERS_DIR, PLAYLISTS_DIR, LYRICS_DIR):
         directory.mkdir(parents=True, exist_ok=True)

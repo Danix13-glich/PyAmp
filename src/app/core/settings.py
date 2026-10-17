@@ -26,6 +26,7 @@ KEY_NOTIFICATIONS_ENABLED = "notifications/enabled"
 KEY_NOTIFICATIONS_TIMEOUT_MS = "notifications/timeout_ms"
 KEY_WINDOW_GEOMETRY = "window/geometry"
 KEY_VIEW_MODE = "ui/view_mode"
+KEY_SHOW_SPECTRUM = "ui/show_spectrum"
 
 DEFAULT_VOLUME = 100
 DEFAULT_TIMEOUT_MS = 5000
@@ -179,6 +180,15 @@ class Settings:
     def view_mode(self, value: str) -> None:
         if value in VIEW_MODES:
             self.set_value(KEY_VIEW_MODE, value)
+
+    @property
+    def show_spectrum(self) -> bool:
+        """True si el espectrograma se muestra (menú Ver)."""
+        return _as_bool(self._raw(KEY_SHOW_SPECTRUM, True), True)
+
+    @show_spectrum.setter
+    def show_spectrum(self, value: bool) -> None:
+        self.set_value(KEY_SHOW_SPECTRUM, bool(value))
 
 
 _instance: Settings | None = None

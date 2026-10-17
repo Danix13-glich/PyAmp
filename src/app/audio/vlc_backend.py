@@ -173,15 +173,27 @@ class VlcBackend(AudioBackend):
     def position_ms(self) -> int:
         """Posición actual en ms (0 si VLC devuelve -1 = no disponible).
 
+        Usa ``get_time()`` (milisegundos directos). ``get_position()``
+        devuelve una **fracción 0..1**, no ms — con la duración completa
+        multiplicada daba una barra prácticamente congelada en MP3
+        largos (bug Fase 4); se conserva solo como fallback.
+
         Además es el punto de refresco (lo llama el poll del player) para
         aplicar volumen/mute pendientes en cuanto hay aout — ver
         :meth:`_apply_audio_if_ready`.
         """
         self._apply_audio_if_ready()
+        time_ms = self._player.get_time()
+        if time_ms is not None and time_ms >= 0:
+            return int(time_ms)
+        # Fallback: fracción (0..1) × duración conocida.
         position = self._player.get_position()
         if position is None or position < 0:
             return 0
-        return int(position * 1000)
+        length = self._player.get_length()
+        if not length or length < 0:
+            return 0
+        return int(position * length)
 
     def duration_ms(self) -> int:
         """Duración en ms (0 si aún no la conoce VLC)."""

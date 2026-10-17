@@ -26,8 +26,8 @@ from PySide6.QtWidgets import QWidget
 
 logger = logging.getLogger(__name__)
 
-#: Número de barras dibujadas.
-BAR_COUNT = 40
+#: Número de barras dibujadas (ajuste Fase 5: ecualizador de 5 bandas).
+BAR_COUNT = 5
 
 #: Parámetros de la captura (float32 mono).
 SAMPLE_RATE = 44100
@@ -42,6 +42,12 @@ DECAY = 0.86
 FREQ_MIN = 40.0
 FREQ_MAX = 16000.0
 
+#: Altura del widget (ajuste Fase 5: más compacto).
+SPECTRUM_HEIGHT = 32
+
+#: Tono azul de las barras (HSV: azul-cian según el nivel).
+BAR_HUE = 210
+
 _NO_SIGNAL_TEXT = "Espectro no disponible (se requiere parec/pactl)"
 
 
@@ -50,7 +56,7 @@ class SpectrumWidget(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumHeight(56)
+        self.setMinimumHeight(SPECTRUM_HEIGHT)
         self.setToolTip("Espectro de la salida de audio")
 
         self._bars = np.zeros(BAR_COUNT, dtype=np.float32)
@@ -222,14 +228,14 @@ class SpectrumWidget(QWidget):
         height = rect.height()
         bar_width = max(2, (width - gap * (BAR_COUNT + 1)) // BAR_COUNT)
         for index, level in enumerate(np.asarray(self._bars)):
-            bar_height = int(float(level) * (height - 8))
+            bar_height = int(float(level) * (height - 6))
             if bar_height <= 0:
                 continue
             x = gap + index * (bar_width + gap)
-            top = height - 4 - bar_height
-            # Verde → amarillo → rojo según el nivel (clásico Winamp).
-            color = QColor.fromHsv(int(120 - 120 * float(level)), 220, 235)
+            top = height - 3 - bar_height
+            # Azul: tono fijo, más brillante cuanto más fuerte es el nivel.
+            color = QColor.fromHsv(BAR_HUE, 190, 150 + int(105 * float(level)))
             painter.fillRect(x, top, bar_width, bar_height, color)
         painter.setPen(QColor(70, 70, 70))
-        painter.drawLine(0, height - 4, width, height - 4)
+        painter.drawLine(0, height - 3, width, height - 3)
         painter.end()
