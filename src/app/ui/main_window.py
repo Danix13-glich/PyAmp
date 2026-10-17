@@ -215,23 +215,16 @@ class MainWindow(QMainWindow):
         bottom_row.addWidget(self._label_time)
         header_v.addLayout(bottom_row)
 
-        # Panel oscuro fijo (el borde de la carátula es propio del widget).
-        header_panel.setStyleSheet(
-            "QWidget#headerPanel { background-color: #17171b; border-radius: 6px; }"
-            "QWidget#headerPanel QLabel { color: #9e9ea6; background: transparent; }"
-        )
-        layout.addWidget(header_panel)
-
-        # --- barra de posición justo debajo de la cabecera ---
+        # --- barra de posición dentro del recuadro (debajo del tiempo) ---
         self._slider_seek = QSlider(Qt.Orientation.Horizontal)
         self._slider_seek.setRange(0, 0)
         self._slider_seek.setToolTip("Posición de reproducción")
         self._slider_seek.setAccessibleName("Posición")
         self._slider_seek.sliderReleased.connect(self._on_seek_released)
         self._slider_seek.sliderMoved.connect(self._on_seek_moved)
-        layout.addWidget(self._slider_seek)
+        header_v.addWidget(self._slider_seek)
 
-        # --- transporte: play/pausa unificado + favorito + volumen ---
+        # --- transporte dentro del recuadro: play/pausa + favorito + volumen ---
         transport_row = QHBoxLayout()
         self._button_prev = self._make_button(
             QStyle.StandardPixmap.SP_MediaSkipBackward, "Anterior (F9)", self._player.prev
@@ -274,7 +267,14 @@ class MainWindow(QMainWindow):
         self._slider_volume.setAccessibleName("Volumen")
         self._slider_volume.valueChanged.connect(self._on_volume_slider_changed)
         transport_row.addWidget(self._slider_volume)
-        layout.addLayout(transport_row)
+        header_v.addLayout(transport_row)
+
+        # Panel oscuro fijo (el borde de la carátula es propio del widget).
+        header_panel.setStyleSheet(
+            "QWidget#headerPanel { background-color: #17171b; border-radius: 6px; }"
+            "QWidget#headerPanel QLabel { color: #9e9ea6; background: transparent; }"
+        )
+        layout.addWidget(header_panel)
 
         # --- vistas a todo el ancho (menú Ver): canciones | biblioteca ---
         self._songs_table = SongsTable(self._library)

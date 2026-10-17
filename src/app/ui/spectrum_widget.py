@@ -45,6 +45,10 @@ FREQ_MAX = 16000.0
 #: Altura del widget (ajuste Fase 5: más compacto).
 SPECTRUM_HEIGHT = 32
 
+#: Ancho del widget (fijo: 5 barras caben sin estirarse; en la cabecera
+#: horizontal un QWidget sin ancho mínimo colapsaba a 0 y no se veía).
+SPECTRUM_WIDTH_PX = 120
+
 #: Tono azul de las barras (HSV: azul-cian según el nivel).
 BAR_HUE = 210
 
@@ -57,6 +61,7 @@ class SpectrumWidget(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setMinimumHeight(SPECTRUM_HEIGHT)
+        self.setFixedWidth(SPECTRUM_WIDTH_PX)
         self.setToolTip("Espectro de la salida de audio")
 
         self._bars = np.zeros(BAR_COUNT, dtype=np.float32)

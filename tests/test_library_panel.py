@@ -391,10 +391,11 @@ def test_spectrum_widget_start_stop_and_shutdown_are_safe(qapp: QApplication) ->
 
 
 def test_spectrum_widget_is_compact_and_blue_bars(qapp: QApplication) -> None:
-    """Ajuste Fase 5: 5 barras y32 px de alto mínimo."""
+    """Ajuste Fase 5: 5 barras, 32 px de alto y 120 px de ancho fijo."""
     widget = SpectrumWidget()
     assert BAR_COUNT == 5
     assert widget.minimumHeight() == 32
+    assert widget.width() == 120  # ancho fijo (no colapsa en filas horizontales)
 
 
 # ------------------------------------------------------- letras (Fase 5)

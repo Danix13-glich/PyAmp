@@ -113,14 +113,27 @@ class VlcBackend(AudioBackend):
         self._player.stop()
 
     def seek(self, position_ms: int) -> None:
-        """Mueve el cursor (segundos float; -1 si no es seekable)."""
+        """Mueve el cursor a ``position_ms`` (milisegundos reales).
+
+        Usa ``set_time()`` (ms directos). ``set_position()`` espera una
+        **fracción 0..1** — pasarle segundos hacía que VLC saltara al
+        final del archivo (fin de pista → siguiente canción; bug Fase 5).
+        Se conserva como fallback fracción×duración si el tiempo
+        absoluto no lo admite el formato.
+        """
         if not self._has_media:
             return  # sin media cargada: evitar llamadas fragiles a libVLC
         target = max(0, int(position_ms))
         length = self._player.get_length()
         if length and length > 0:
             target = min(target, int(length))
-        self._player.set_position(target / 1000.0)
+        applied = self._player.set_time(target)
+        if applied is not None and applied >= 0:
+            return
+        # Fallback: posición relativa (0..1) cuando set_time no aplica.
+        length = self._player.get_length()
+        if length and length > 0:
+            self._player.set_position(target / float(length))
 
     # ---------------------------------------------------------------- volumen
     def set_volume(self, volume: int) -> None:

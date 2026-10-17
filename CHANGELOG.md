@@ -57,7 +57,7 @@ y el proyecto sigue [SemVer](https://semver.org/lang/es/spec/v2.0.0.html).
   - Menú «Ver»: Canciones (Ctrl+1, por defecto) y Biblioteca (Ctrl+2) en `QStackedWidget` a todo el ancho, con vista persistida en `ui/view_mode`.
   - «Archivo → Abrir carpeta...» además lanza el escáner de biblioteca en segundo plano (`_start_scan` compartido), de modo que las canciones siempre aparecen en la vista Canciones.
   - Tests: favoritos/migración en `tests/test_database.py`; tabla, ajustes y espectro en `tests/test_library_panel.py` — total 54 tests.
-- **Fase 5 — ajustes de interfaz, MPRIS y letras** (versión **0.1.3**):
+- **Fase 5 — ajustes de interfaz, MPRIS y letras** (versión **0.1.4**):
   - Política de versionado: cada componente MAYOR.MENOR.PARCHE es un solo
     dígito (0–9); cada cambio del programa sube el parche y al desbordarse
     conmuta el siguiente componente (0.1.9 → 0.2.0). Declarada en
@@ -83,6 +83,17 @@ y el proyecto sigue [SemVer](https://semver.org/lang/es/spec/v2.0.0.html).
 - (Fase 5) Botón de detener (■) de la barra de transporte y la etiqueta de texto «▶ Reproduciendo / ⏸ En pausa / ■ Detenido».
 
 ### Fixed
+- `VlcBackend.seek()` usaba `set_position(ms/1000)` — `set_position()`
+  espera una **fracción 0..1**, no segundos: al buscar, VLC saltaba al
+  final del archivo y la canción **cambiaba de pista** en vez de
+  reproducir desde el punto elegido. Ahora usa `set_time()` (ms
+  directos) con fallback fracción×duración.
+- El espectrograma de la cabecera colapsaba a **ancho 0** en la fila
+  horizontal (el texto se llevaba todo el `stretch`); ahora tiene
+  ancho fijo de 120 px (`SPECTRUM_WIDTH_PX`).
+- La barra de posición y los controles de transporte ahora están
+  **dentro del recuadro oscuro** de la cabecera (seek debajo del
+  tiempo; transporte al pie del recuadro).
 - `VlcBackend.position_ms()` usaba `get_position()` (fracción 0..1) × 1000: en archivos largos la barra de posición y el temporizador quedaban **congelados** (avanzaban ~192× más lento en un MP3 de 3 min). Ahora usa `get_time()` (ms directos) con fallback fracción×duración.
 - Los E2E ya no tocan la configuración real: usan `XDG_CONFIG_HOME`/`XDG_DATA_HOME` aislados (los anteriores habían dejado la playlist de prueba «Rojo/Azul» y una geometría offscreen en el QSettings real; se limpiaron).
 - Workaround en `VlcBackend`: libVLC (Fedora 44, VLC 3.0.23) hace SIGSEGV si se llama `audio_set_volume`/`audio_set_mute` antes de existir la salida de audio; el volumen/mute se difiere hasta que `is_playing()` es True.
