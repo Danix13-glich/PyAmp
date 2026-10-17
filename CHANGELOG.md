@@ -47,6 +47,19 @@ y el proyecto sigue [SemVer](https://semver.org/lang/es/spec/v2.0.0.html).
   - `src/app/ui/main_window.py`: splitter biblioteca|playlist, carátula en la fila de información (pista sonando o selección), wiring doble clic → playlist, refresco automático tras escanear.
   - `src/app/core/settings.py`: clave `window/splitter_state` (tamaño del splitter al reabrir).
   - Tests: `tests/test_library_panel.py` (árbol perezoso, búsqueda, activación con contexto, selección, carátulas, `replace_playlist`) — total 42 tests.
+- **Fase 4 — vistas, ajustes, favoritos y espectro**:
+  - `src/app/ui/songs_table.py`: vista «Canciones» — `QAbstractTableModel` + `QSortFilterProxyModel` con columnas Nombre | Duración | Artista | ★; la duración **ordena por milisegundos** (no texto), el filtro de búsqueda es local y debounce; doble clic/Enter reproduce con el contexto visible; doble clic sobre ★ alterna el favorito; etiquetas de vacío/sin resultados y contador.
+  - `src/app/ui/settings_dialog.py`: «Editar → Ajustes...» (Ctrl+,) — notificaciones on/off, duración 1–60 s, botón «Probar notificación» (pasa por el MISMO `Notifier`), información de versión/backend/biblioteca; la ventana aplica los cambios al vuelo y los persiste en QSettings.
+  - `src/app/ui/spectrum_widget.py`: espectrograma de barras (numpy + QPainter, 40 barras, FFT log 40 Hz–16 kHz, ~30 fps) alimentado por **captura real** de la salida del sistema (`parec` sobre el monitor del sink por defecto vía `pactl`, típico en Fedora/PipeWire); sin `parec`/`pactl` muestra «Espectro no disponible» (nunca anima datos inventados); la lectura va en hilo propio y `shutdown()` termina el proceso al cerrar.
+  - Favoritos: migración de BD **v2** (`ALTER TABLE tracks ADD COLUMN is_favorite`), `Track.is_favorite`, `toggle_favorite`/`is_favorite` (crea una fila mínima si el path aún no está indexado) y upsert que **preserva** el favorito en re-escaneos; botón ★ en la barra de transporte sincronizado con la pista actual y columna ★ en la tabla.
+  - Play/pausa unificado en un solo botón con icono dinámico (▶/⏸), tooltip por estado y etiqueta de estado «▶ Reproduciendo / ⏸ En pausa / ■ Detenido» junto al tiempo.
+  - Atajos de transporte: F9 (anterior), F10 (reproducir/pausar), F11 (siguiente) y teclas multimedia (Play/Pause/Next/Previous/Toggle) con `ApplicationShortcut`; construidos con enums `Qt.Key` (el parse por nombre «MediaPlay» no es portable en Qt6).
+  - Menú «Ver»: Canciones (Ctrl+1, por defecto) y Biblioteca (Ctrl+2) en `QStackedWidget` a todo el ancho, con vista persistida en `ui/view_mode`.
+  - «Archivo → Abrir carpeta...» además lanza el escáner de biblioteca en segundo plano (`_start_scan` compartido), de modo que las canciones siempre aparecen en la vista Canciones.
+  - Tests: favoritos/migración en `tests/test_database.py`; tabla, ajustes y espectro en `tests/test_library_panel.py` — total 54 tests.
+
+### Removed
+- (Fase 4) Splitter biblioteca|playlist y la lista lateral visible: ahora hay UNA vista a todo el ancho; la cola interna se controla con el transporte (▶/siguiente/anterior). La clave `window/splitter_state` se sustituye por `ui/view_mode`.
 
 ### Fixed
 - Workaround en `VlcBackend`: libVLC (Fedora 44, VLC 3.0.23) hace SIGSEGV si se llama `audio_set_volume`/`audio_set_mute` antes de existir la salida de audio; el volumen/mute se difiere hasta que `is_playing()` es True.

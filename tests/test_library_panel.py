@@ -1,19 +1,23 @@
-"""Tests de la UI de biblioteca (Fase 3): panel, carátulas y replace_playlist.
+"""Tests de la UI de biblioteca (Fase 3) y de la Fase 4.
 
-Usan ``QApplication`` offscreen (CI define ``QT_QPA_PLATFORM=offscreen``);
-el árbol se rellena con un SQLite temporal construido con la misma fachada
-que usa la app.
+Fase 3: panel-árbol y carátulas. Fase 4: vista Canciones (modelo+proxy),
+diálogo de Ajustes y widget de espectro. Todos usan ``QApplication``
+offscreen (CI define ``QT_QPA_PLATFORM=offscreen``); el árbol y la tabla
+se rellenan con un SQLite temporal construido con la misma fachada que
+usa la app.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication
 
 from app.core.player import Player
-from app.core.settings import get_settings
+from app.core.settings import MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, get_settings
 from app.library.database import LibraryDatabase
 from app.library.models import Album, Track
 from app.ui.cover_widget import CoverLabel
@@ -23,6 +27,14 @@ from app.ui.library_panel import (
     ROLE_TRACK,
     LibraryPanel,
 )
+from app.ui.settings_dialog import SettingsDialog
+from app.ui.songs_table import (
+    COLUMN_DURATION,
+    COLUMN_FAVORITE,
+    COLUMN_NAME,
+    SongsTable,
+)
+from app.ui.spectrum_widget import BAR_COUNT, CHUNK_FRAMES, SpectrumWidget
 
 
 @pytest.fixture(scope="module")
@@ -251,3 +263,127 @@ def test_replace_playlist_swaps_context(qapp: QApplication) -> None:
         assert len(player.playlist) == 3
     finally:
         player.shutdown()
+
+
+# ------------------------------------------------- vista Canciones (Fase 4)
+@pytest.fixture()
+def songs(qapp: QApplication, db: LibraryDatabase) -> SongsTable:
+    widget = SongsTable(db)
+    widget.refresh()
+    return widget
+
+
+def test_songs_table_columns_and_rows(songs: SongsTable) -> None:
+    model = songs.model
+    assert model.columnCount() == 4
+    assert model.rowCount() == 3
+    assert model.headerData(0, Qt.Orientation.Horizontal) == "Nombre"
+    assert model.headerData(3, Qt.Orientation.Horizontal) == "★"
+    # La vista usa el proxy (orden + filtro), no el modelo directamente.
+    assert songs.view.model() is songs.proxy
+
+
+def test_songs_table_sorts_duration_by_milliseconds(songs: SongsTable) -> None:
+    songs.view.sortByColumn(COLUMN_DURATION, Qt.SortOrder.DescendingOrder)
+
+    # Orden real: 2:00 > 1:30 > «—» (0) — no orden lexicográfico.
+    titles = [track.title for track in songs.visible_tracks()]
+    assert titles[:2] == ["Dos", "Uno"]
+    assert titles[2] == "Suelta"
+
+
+def test_songs_table_filter_narrows_rows(songs: SongsTable) -> None:
+    songs.search("Dos")
+    assert songs.proxy.rowCount() == 1
+    assert [track.title for track in songs.visible_tracks()] == ["Dos"]
+
+    songs.search("")
+    assert songs.proxy.rowCount() == 3
+
+
+def test_songs_activation_emits_track_with_visible_context(songs: SongsTable) -> None:
+    received: list[tuple[Track, list[Track]]] = []
+    songs.track_activated.connect(lambda t, c: received.append((t, c)))
+
+    songs.view.activated.emit(songs.proxy.index(0, COLUMN_NAME))
+
+    assert len(received) == 1
+    track, context = received[0]
+    assert isinstance(track, Track)
+    assert context == songs.visible_tracks()
+    assert track in context
+
+
+def test_songs_star_column_emits_favorite_toggled(songs: SongsTable) -> None:
+    received: list[Track] = []
+    songs.favorite_toggled.connect(received.append)
+
+    songs.view.activated.emit(songs.proxy.index(0, COLUMN_FAVORITE))
+    assert len(received) == 1
+
+    # Activar otra columna NO emite el alternado de favorito.
+    songs.view.activated.emit(songs.proxy.index(0, COLUMN_NAME))
+    assert len(received) == 1
+
+
+# ------------------------------------------------- diálogo Ajustes (Fase 4)
+def test_settings_dialog_reads_settings_and_emits_apply(qapp: QApplication) -> None:
+    settings = get_settings()
+    original_enabled = settings.notifications_enabled
+    dialog = SettingsDialog(
+        settings,
+        notifier_backend="test-backend",
+        version="0.1.0",
+        library_stats={"tracks": 3, "artists": 1, "albums": 1},
+    )
+
+    assert dialog._spin_timeout.minimum() == MIN_TIMEOUT_MS // 1000  # noqa: SLF001 - tests
+    assert dialog._spin_timeout.maximum() == MAX_TIMEOUT_MS // 1000  # noqa: SLF001 - tests
+    assert dialog._check_enabled.isChecked() == original_enabled  # noqa: SLF001 - tests
+
+    applied: list[tuple[bool, int]] = []
+    tested: list[int] = []
+    dialog.apply_settings.connect(lambda enabled, ms: applied.append((enabled, ms)))
+    dialog.test_notification.connect(lambda: tested.append(1))
+
+    dialog._button_test.click()  # noqa: SLF001 - tests
+    assert tested == [1]
+
+    dialog._check_enabled.setChecked(not original_enabled)  # noqa: SLF001 - tests
+    dialog._spin_timeout.setValue(12)  # noqa: SLF001 - tests
+    dialog._on_accepted()  # noqa: SLF001 - tests
+
+    assert applied == [(not original_enabled, 12000)]
+    # El diálogo NO persiste por sí mismo: eso lo hace la ventana.
+    assert settings.notifications_enabled == original_enabled
+
+
+# ---------------------------------------------- espectrograma (Fase 4)
+def test_spectrum_widget_paints_and_computes_levels(qapp: QApplication) -> None:
+    widget = SpectrumWidget()
+    widget.resize(320, 56)
+
+    assert widget.available is None  # aún no se probó la captura
+
+    # Pintar sin señal ni reproducción no debe fallar (grab fuerza paintEvent).
+    pixmap = widget.grab()
+    assert not pixmap.isNull()
+
+    # FFT de un chunk sintético → 40 niveles normalizados 0..1.
+    chunk = np.full(CHUNK_FRAMES, 0.2, dtype=np.float32)
+    levels = widget._compute(chunk)  # noqa: SLF001 - tests
+    assert levels is not None
+    assert levels.shape == (BAR_COUNT,)
+    assert float(levels.min()) >= 0.0
+    assert float(levels.max()) <= 1.0
+
+
+def test_spectrum_widget_start_stop_and_shutdown_are_safe(qapp: QApplication) -> None:
+    widget = SpectrumWidget()
+    widget.set_playing(True)  # intenta parec/pactl; si faltan → reposo
+    assert widget.available in (True, False, None)
+    widget.set_playing(False)
+
+    widget.shutdown()
+    widget.shutdown()  # idempotente (closeEvent puede repetirse en tests)
+    assert widget.available is not None  # ya quedó resuelto

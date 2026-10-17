@@ -179,6 +179,63 @@ def test_stats(db: LibraryDatabase) -> None:
     assert stats == {"tracks": 1, "artists": 1, "albums": 1, "playlists": 0}
 
 
+# ------------------------------------------------- favoritos (Fase 4 / v2)
+def test_schema_has_favorite_column(db: LibraryDatabase) -> None:
+    columns = {row["name"] for row in db.connection.execute("PRAGMA table_info(tracks)").fetchall()}
+    assert "is_favorite" in columns
+
+
+def test_migration_v1_to_v2_adds_favorite_column(tmp_path: Path) -> None:
+    """Una BD en v1 (Fase 3) se migra a v2 al abrirla con la fachada."""
+    from app.library.database import _SCHEMA_V1
+
+    path = tmp_path / "old.db"
+    conn = open_connection(path)
+    try:
+        conn.executescript(_SCHEMA_V1)
+        conn.execute("PRAGMA user_version = 1")
+        conn.commit()
+    finally:
+        conn.close()
+
+    database = LibraryDatabase(path)
+    try:
+        row = database.connection.execute("PRAGMA user_version").fetchone()
+        assert row is not None and row[0] == SCHEMA_VERSION == 2
+        columns = {r["name"] for r in database.connection.execute("PRAGMA table_info(tracks)")}
+        assert "is_favorite" in columns
+    finally:
+        database.close()
+
+
+def test_toggle_favorite_lifecycle(db: LibraryDatabase) -> None:
+    path = "/m/fav.mp3"
+
+    # Pista no indexada: el primer toggle crea la fila y la marca.
+    assert db.toggle_favorite(path) is True
+    assert db.is_favorite(path) is True
+
+    # Segundo toggle la desmarca; persiste tras reabrir conexión lógica.
+    assert db.toggle_favorite(path) is False
+    assert db.is_favorite(path) is False
+
+    # Path desconocido y sin marcar → False sin crear nada.
+    assert db.is_favorite("/m/nunca.mp3") is False
+
+
+def test_upsert_preserves_favorite(db: LibraryDatabase) -> None:
+    """Re-escanear la misma pista no borra el favorito del usuario."""
+    db.upsert_track(Track(path="/m/fav.mp3", title="Fav", artist="Alfa"))
+    assert db.toggle_favorite("/m/fav.mp3") is True
+
+    db.upsert_track(Track(path="/m/fav.mp3", title="Fav v2", artist="Alfa"))
+
+    assert db.is_favorite("/m/fav.mp3") is True
+    track = next(t for t in db.all_tracks() if t.path == "/m/fav.mp3")
+    assert track.is_favorite is True
+    assert track.title == "Fav v2"
+
+
 # ------------------------------------------------------- playlists (repo)
 def test_playlist_repository_lifecycle(db: LibraryDatabase) -> None:
     repo = PlaylistRepository(db)

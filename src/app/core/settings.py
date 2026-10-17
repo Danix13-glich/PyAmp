@@ -25,12 +25,18 @@ KEY_PLAYLIST_INDEX = "playlist/current_index"
 KEY_NOTIFICATIONS_ENABLED = "notifications/enabled"
 KEY_NOTIFICATIONS_TIMEOUT_MS = "notifications/timeout_ms"
 KEY_WINDOW_GEOMETRY = "window/geometry"
-KEY_WINDOW_SPLITTER = "window/splitter_state"
+KEY_VIEW_MODE = "ui/view_mode"
 
 DEFAULT_VOLUME = 100
 DEFAULT_TIMEOUT_MS = 5000
 MIN_TIMEOUT_MS = 1000
 MAX_TIMEOUT_MS = 60000
+
+#: Vistas posibles del menú Ver (Fase 4).
+VIEW_CANCIONES = "canciones"
+VIEW_BIBLIOTECA = "biblioteca"
+VIEW_MODES = {VIEW_CANCIONES, VIEW_BIBLIOTECA}
+DEFAULT_VIEW_MODE = VIEW_CANCIONES
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -163,16 +169,16 @@ class Settings:
         self.set_value(KEY_WINDOW_GEOMETRY, geometry)
 
     @property
-    def window_splitter_state(self) -> QByteArray | None:
-        """Estado del splitter biblioteca/playlist (None la primera vez)."""
-        value = self._settings.value(KEY_WINDOW_SPLITTER)
-        if isinstance(value, QByteArray):
-            return value
-        return None
+    def view_mode(self) -> str:
+        """Vista activa del menú Ver: «canciones» (tabla) o «biblioteca»."""
+        raw = self._raw(KEY_VIEW_MODE, DEFAULT_VIEW_MODE)
+        value = str(raw).strip().lower() if raw is not None else ""
+        return value if value in VIEW_MODES else DEFAULT_VIEW_MODE
 
-    @window_splitter_state.setter
-    def window_splitter_state(self, state: QByteArray) -> None:
-        self.set_value(KEY_WINDOW_SPLITTER, state)
+    @view_mode.setter
+    def view_mode(self, value: str) -> None:
+        if value in VIEW_MODES:
+            self.set_value(KEY_VIEW_MODE, value)
 
 
 _instance: Settings | None = None

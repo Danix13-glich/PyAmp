@@ -51,6 +51,8 @@ class Track:
     last_played_at: str | None = None
     id: int | None = None
     play_count: int = 0
+    #: Favorito marcado por el usuario (Fase 4; columna BD `is_favorite`).
+    is_favorite: bool = False
     # Campos extra que pueda aportar un .m3u (no persisten en BD).
     extra: dict[str, str] = field(default_factory=dict)
 

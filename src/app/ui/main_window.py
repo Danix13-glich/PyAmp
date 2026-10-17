@@ -1,18 +1,19 @@
-"""Ventana principal de PyAmp — UI mínima de la Fase 1.
+"""Ventana principal de PyAmp — Fase 4.
 
-Contiene lo justo para reproducir: abrir archivo/carpeta, transporte,
-sliders de seek y volumen, etiquetas de pista/tiempo y lista simple con
-guardar/cargar ``.m3u``. Esta UI la sustituirá la Winamp moderna en la
-Fase 3 (LCD, playlist lateral, temas).
+Vistas (menú Ver): «Canciones» (tabla del catálogo, por defecto) y
+«Biblioteca» (árbol artista→álbum→pista), una sola a todo el ancho en un
+``QStackedWidget``. Sin lista lateral: la cola interna se controla con el
+transporte (▶/siguiente/anterior).
 
 Reglas que respeta:
 
 * La UI **nunca** habla con VLC: llama a :class:`app.core.player.Player`
   y escucha sus señales.
 * La UI **nunca** lanza notificaciones: solo existe UNA conexión
-  ``player.track_changed -> notifier.notify_track``.
-* El escaneo de carpetas ocurre en :class:`_FolderLoader` (QThread) — la
-  interfaz nunca se bloquea (RNF).
+  ``player.track_changed -> notifier.notify_track`` (el botón «Probar»
+  de Ajustes pasa por el MISMO Notifier).
+* Carpetas: :class:`_FolderLoader` (cola) y :class:`ScannerThread`
+  (biblioteca) en QThread — la interfaz nunca se bloquea (RNF).
 """
 
 from __future__ import annotations
@@ -22,26 +23,29 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from PySide6.QtCore import QObject, Qt, QThread, Signal
-from PySide6.QtGui import QAction, QFontDatabase, QKeySequence
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QAction, QActionGroup, QFontDatabase, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QMainWindow,
     QSlider,
-    QSplitter,
+    QStackedWidget,
     QStyle,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from app.core.player import STATE_PLAYING, STATE_STOPPED, Player
+from app.core.player import STATE_PAUSED, STATE_PLAYING, STATE_STOPPED, Player
 from app.core.playlist import audio_filter_string, collect_audio_files
-from app.core.settings import Settings, get_settings
+from app.core.settings import (
+    VIEW_BIBLIOTECA,
+    VIEW_CANCIONES,
+    Settings,
+    get_settings,
+)
 from app.library.covers import extract_cover
 from app.library.database import LibraryDatabase
 from app.library.metadata import read_metadata
@@ -50,8 +54,12 @@ from app.library.scanner import ScannerThread
 from app.notifications.notifier import Notifier
 from app.ui.cover_widget import CoverLabel
 from app.ui.library_panel import LibraryPanel
+from app.ui.settings_dialog import SettingsDialog
+from app.ui.songs_table import SongsTable
+from app.ui.spectrum_widget import SpectrumWidget
 from app.utils.paths import PLAYLISTS_DIR
 from app.utils.time_format import format_time
+from app.version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -148,35 +156,43 @@ class MainWindow(QMainWindow):
         fixed_font = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         self._label_time.setFont(fixed_font)
         info_row.addWidget(self._label_time, alignment=Qt.AlignmentFlag.AlignVCenter)
+
+        self._label_state = QLabel("■ Detenido")
+        self._label_state.setToolTip("Estado de reproducción")
+        info_row.addWidget(self._label_state, alignment=Qt.AlignmentFlag.AlignVCenter)
         layout.addLayout(info_row)
 
-        # --- transporte + volumen ---
+        # --- transporte: play/pausa unificado + favorito + volumen ---
         transport_row = QHBoxLayout()
         self._button_prev = self._make_button(
-            QStyle.StandardPixmap.SP_MediaSkipBackward, "Anterior (lista)", self._player.prev
+            QStyle.StandardPixmap.SP_MediaSkipBackward, "Anterior (F9)", self._player.prev
         )
         self._button_play = self._make_button(
-            QStyle.StandardPixmap.SP_MediaPlay, "Reproducir", self._player.play
-        )
-        self._button_pause = self._make_button(
-            QStyle.StandardPixmap.SP_MediaPause, "Pausar", self._player.pause
+            QStyle.StandardPixmap.SP_MediaPlay, "Reproducir (F10)", self._on_play_clicked
         )
         self._button_stop = self._make_button(
             QStyle.StandardPixmap.SP_MediaStop, "Detener", self._player.stop
         )
         self._button_next = self._make_button(
-            QStyle.StandardPixmap.SP_MediaSkipForward, "Siguiente", self._player.next
+            QStyle.StandardPixmap.SP_MediaSkipForward, "Siguiente (F11)", self._player.next
         )
         for button in (
             self._button_prev,
             self._button_play,
-            self._button_pause,
             self._button_stop,
             self._button_next,
         ):
             transport_row.addWidget(button)
 
         transport_row.addStretch(1)
+
+        self._button_favorite = QToolButton()
+        self._button_favorite.setText("★")
+        self._button_favorite.setCheckable(True)
+        self._button_favorite.setToolTip("Marcar la pista actual como favorita")
+        self._button_favorite.setAccessibleName("Favorito")
+        self._button_favorite.clicked.connect(self._on_favorite_clicked)
+        transport_row.addWidget(self._button_favorite)
 
         self._button_mute = QToolButton()
         self._button_mute.setCheckable(True)
@@ -204,27 +220,25 @@ class MainWindow(QMainWindow):
         self._slider_seek.sliderMoved.connect(self._on_seek_moved)
         layout.addWidget(self._slider_seek)
 
-        # --- splitter: biblioteca (izq.) | lista actual (der.) ---
-        self._playlist_widget = QListWidget()
-        self._playlist_widget.setAlternatingRowColors(True)
-        self._playlist_widget.setToolTip("Lista de reproducción (doble clic para reproducir)")
+        # --- espectrograma (numpy + QPainter, captura real del sink) ---
+        self._spectrum = SpectrumWidget()
+        layout.addWidget(self._spectrum)
 
+        # --- vistas a todo el ancho (menú Ver): canciones | biblioteca ---
+        self._songs_table = SongsTable(self._library)
         self._library_panel = LibraryPanel(self._library)
-        self._splitter = QSplitter(Qt.Orientation.Horizontal)
-        self._splitter.addWidget(self._library_panel)
-        self._splitter.addWidget(self._playlist_widget)
-        self._splitter.setStretchFactor(0, 2)
-        self._splitter.setStretchFactor(1, 1)
-        self._splitter.setCollapsible(0, False)
-        self._splitter.setCollapsible(1, False)
-        self._splitter.setSizes([420, 260])
-        layout.addWidget(self._splitter, stretch=1)
+        self._stacked = QStackedWidget()
+        self._stacked.addWidget(self._songs_table)  # índice 0: canciones
+        self._stacked.addWidget(self._library_panel)  # índice 1: biblioteca
+        layout.addWidget(self._stacked, stretch=1)
 
         self.setCentralWidget(central)
         self._build_menus()
         self._on_state_changed(STATE_STOPPED)
         self._update_mute_icon(self._settings.muted)
+        self._songs_table.refresh()
         self._library_panel.refresh()
+        self._set_view(self._settings.view_mode, save=False)
 
     def _build_menus(self) -> None:
         """Menú Archivo con las operaciones de playlist."""
@@ -271,6 +285,71 @@ class MainWindow(QMainWindow):
         action_quit.triggered.connect(self.close)
         file_menu.addAction(action_quit)
 
+        # --- menú Ver: tipo de vista (persistida en QSettings) ---
+        view_menu = self.menuBar().addMenu("&Ver")
+        self._action_view_canciones = QAction("Canciones (&tabla)", self)
+        self._action_view_canciones.setCheckable(True)
+        self._action_view_canciones.setShortcut(QKeySequence("Ctrl+1"))
+        self._action_view_canciones.triggered.connect(lambda: self._set_view(VIEW_CANCIONES))
+        self._action_view_biblioteca = QAction("&Biblioteca (árbol)", self)
+        self._action_view_biblioteca.setCheckable(True)
+        self._action_view_biblioteca.setShortcut(QKeySequence("Ctrl+2"))
+        self._action_view_biblioteca.triggered.connect(lambda: self._set_view(VIEW_BIBLIOTECA))
+        view_group = QActionGroup(self)
+        view_group.setExclusive(True)
+        view_group.addAction(self._action_view_canciones)
+        view_group.addAction(self._action_view_biblioteca)
+        view_menu.addAction(self._action_view_canciones)
+        view_menu.addAction(self._action_view_biblioteca)
+
+        # --- menú Editar ---
+        edit_menu = self.menuBar().addMenu("&Editar")
+        action_settings = QAction("&Ajustes...", self)
+        action_settings.setShortcut(QKeySequence.StandardKey.Preferences)
+        action_settings.triggered.connect(self._on_open_settings)
+        edit_menu.addAction(action_settings)
+
+        self._build_shortcuts()
+
+    def _build_shortcuts(self) -> None:
+        """Teclas multimedia y F9/F10/F11 (ApplicationShortcut: basta con  que la ventana esté activa, sin necesidad del foco del ratón).
+
+        Las teclas multimedia usan los enums ``Qt.Key`` (el parse por
+        nombre «MediaPlay» no produce una secuencia portable en Qt6).
+        """
+        shortcuts: tuple[tuple[QKeySequence, str, Callable[..., Any]], ...] = (
+            (
+                QKeySequence(Qt.Key.Key_MediaPrevious),
+                "Pista anterior",
+                self._player.prev,
+            ),
+            (
+                QKeySequence(Qt.Key.Key_MediaTogglePlayPause),
+                "Reproducir/pausar",
+                self._on_play_clicked,
+            ),
+            (QKeySequence(Qt.Key.Key_MediaPlay), "Reproducir", self._player.play),
+            (QKeySequence(Qt.Key.Key_MediaPause), "Pausar", self._player.pause),
+            (
+                QKeySequence(Qt.Key.Key_MediaNext),
+                "Pista siguiente",
+                self._player.next,
+            ),
+            (QKeySequence("F9"), "Pista anterior (F9)", self._player.prev),
+            (
+                QKeySequence("F10"),
+                "Reproducir/pausar (F10)",
+                self._on_play_clicked,
+            ),
+            (QKeySequence("F11"), "Pista siguiente (F11)", self._player.next),
+        )
+        for sequence, name, slot in shortcuts:
+            action = QAction(name, self)
+            action.setShortcut(sequence)
+            action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+            action.triggered.connect(slot)
+            self.addAction(action)  # la ventana mantiene viva la acción
+
     def _make_button(
         self,
         icon: QStyle.StandardPixmap,
@@ -298,7 +377,8 @@ class MainWindow(QMainWindow):
         # La biblioteca acumula estadísticas en cada cambio de pista real.
         player.track_changed.connect(self._record_library_play)
 
-        self._playlist_widget.itemActivated.connect(self._on_item_activated)
+        self._songs_table.track_activated.connect(self._on_library_track_activated)
+        self._songs_table.favorite_toggled.connect(self._on_favorite_row_toggled)
         self._library_panel.track_activated.connect(self._on_library_track_activated)
         self._library_panel.selection_changed.connect(self._on_library_selection_changed)
 
@@ -319,7 +399,7 @@ class MainWindow(QMainWindow):
         self._add_paths(paths)
 
     def _on_open_folder(self) -> None:
-        """Diálogo de carpeta: escaneo en segundo plano."""
+        """Diálogo de carpeta: encola en 2.º plano y actualiza la biblioteca."""
         if self._folder_loader is not None and self._folder_loader.isRunning():
             return
         folder = QFileDialog.getExistingDirectory(self, "Abrir carpeta", self._last_folder)
@@ -333,6 +413,9 @@ class MainWindow(QMainWindow):
         loader.finished.connect(self._on_folder_finished)
         self._folder_loader = loader
         loader.start()
+        # Fase 4: la carpeta también pasa a la biblioteca (en 2.º plano),
+        # de modo que las canciones siempre aparecen en la vista Canciones.
+        self._start_scan(folder)
 
     def _on_paths_loaded(self, paths: list) -> None:
         """Resultado del escaneo (hilo de UI)."""
@@ -357,6 +440,12 @@ class MainWindow(QMainWindow):
         if not folder:
             return
         self._last_folder = folder
+        self._start_scan(folder)
+
+    def _start_scan(self, folder: str) -> None:
+        """Lanza el escáner de biblioteca en QThread (nunca bloquea la UI)."""
+        if self._scanner is not None and self._scanner.isRunning():
+            return
         self._action_scan.setEnabled(False)
         self.statusBar().showMessage(f"Escaneando {folder} ...", 0)
         scanner = ScannerThread(self._library.path, folder, self)
@@ -386,6 +475,7 @@ class MainWindow(QMainWindow):
             message += " (escaneo cancelado)"
         self.statusBar().showMessage(message, ERROR_TIMEOUT_MS)
         self._library_panel.refresh()
+        self._songs_table.refresh()
 
     def _record_library_play(self, track: object) -> None:
         """Suma una reproducción en la biblioteca (nunca rompe el playback)."""
@@ -408,11 +498,13 @@ class MainWindow(QMainWindow):
         except ValueError:
             start = 0
         self._player.replace_playlist(tracks, start)
-        self._rebuild_rows()
         logger.info(
             "Biblioteca: reproduciendo %r (%d pistas en contexto)",
             track.display_title,
             len(tracks),
+        )
+        self.statusBar().showMessage(
+            f"▶ {track.display_name} ({len(tracks)} pistas en cola)", ERROR_TIMEOUT_MS
         )
 
     def _on_library_selection_changed(self, selection: object) -> None:
@@ -442,19 +534,17 @@ class MainWindow(QMainWindow):
             return None
 
     def _add_paths(self, paths: list[str]) -> None:
-        """Añade pistas al modelo y a la lista; arranca si estaba vacía."""
+        """Añade pistas a la playlist interna; arranca si estaba vacía."""
         if not paths:
             return
         was_empty = len(self._player.playlist) == 0
         tracks = self._player.add_paths(paths)
-        for track in tracks:
-            self._append_row(track)
         if was_empty and tracks:
             # Primeras pistas de la sesión: empieza a sonar la primera.
             self._player.play_index(0)
         else:
             self.statusBar().showMessage(
-                "Doble clic en una pista para reproducir", ERROR_TIMEOUT_MS
+                f"{len(tracks)} pistas en cola — ▶ para reproducir", ERROR_TIMEOUT_MS
             )
 
     def _on_load_playlist(self) -> None:
@@ -471,8 +561,7 @@ class MainWindow(QMainWindow):
         except OSError as exc:
             self._on_error(f"No se pudo cargar la playlist: {exc}")
             return
-        self._rebuild_rows()
-        self.statusBar().showMessage(f"Playlist cargada ({count} pistas)", ERROR_TIMEOUT_MS)
+        self.statusBar().showMessage(f"Playlist cargada ({count} pistas en cola)", ERROR_TIMEOUT_MS)
         if count:
             current = self._player.current_track
             if current is not None:
@@ -503,14 +592,9 @@ class MainWindow(QMainWindow):
     def _on_clear_playlist(self) -> None:
         self._player.stop()
         self._player.playlist.clear()
-        self._playlist_widget.clear()
         self._label_title.setText(WINDOW_TITLE)
         self._label_artist.setText("—")
         self.statusBar().showMessage("Playlist vaciada", ERROR_TIMEOUT_MS)
-
-    def _on_item_activated(self, item: QListWidgetItem) -> None:
-        """Doble clic o Enter en una fila: reproducir esa pista."""
-        self._player.play_index(self._playlist_widget.row(item))
 
     # ------------------------------------------------------ slots del player
     def _on_track_changed(self, track: object) -> None:
@@ -519,7 +603,7 @@ class MainWindow(QMainWindow):
             self._show_track(track)
 
     def _show_track(self, track: Track) -> None:
-        """Actualiza etiquetas y fila con los datos de la pista."""
+        """Actualiza etiquetas, carátula y estado del favorito."""
         self._label_title.setText(track.display_title)
         self._label_title.setToolTip(track.path)
         self._label_artist.setText(track.display_artist)
@@ -531,23 +615,38 @@ class MainWindow(QMainWindow):
             self._slider_seek.setRange(0, track.duration_ms)
         self._update_time_label(self._slider_seek.value())
 
-        index = self._player.playlist.current_index
-        if 0 <= index < self._playlist_widget.count():
-            item = self._playlist_widget.item(index)
-            if item is not None:
-                if track.title:
-                    item.setText(track.display_name)
-                item.setSelected(True)
-            self._playlist_widget.setCurrentRow(index)
+        self._button_favorite.setEnabled(track.path != "")
+        favorite = False
+        if track.path:
+            try:
+                favorite = self._library.is_favorite(track.path)
+            except Exception as exc:  # noqa: BLE001 - la música no se detiene
+                logger.debug("Sin estado de favorito: %s", exc)
+        self._button_favorite.setChecked(favorite)
 
     def _on_state_changed(self, state: str) -> None:
-        """Refleja el estado en los botones de transporte."""
+        """Refleja el estado: icono del play unificado, etiqueta y espectro."""
         playing = state == STATE_PLAYING
-        self._button_play.setEnabled(state != STATE_PLAYING)
-        self._button_pause.setEnabled(playing)
+        if playing:
+            icon = QStyle.StandardPixmap.SP_MediaPause
+            tooltip = "Pausar (F10)"
+            state_text = "▶ Reproduciendo"
+        elif state == STATE_PAUSED:
+            icon = QStyle.StandardPixmap.SP_MediaPlay
+            tooltip = "Reanudar (F10)"
+            state_text = "⏸ En pausa"
+        else:
+            icon = QStyle.StandardPixmap.SP_MediaPlay
+            tooltip = "Reproducir (F10)"
+            state_text = "■ Detenido"
+        self._button_play.setIcon(self.style().standardIcon(icon))
+        self._button_play.setToolTip(tooltip)
+        self._button_play.setAccessibleName(tooltip)
+        self._label_state.setText(state_text)
         self._button_stop.setEnabled(state != STATE_STOPPED)
         self._button_prev.setEnabled(state != STATE_STOPPED)
         self._button_next.setEnabled(state != STATE_STOPPED)
+        self._spectrum.set_playing(playing)
 
     def _on_position_changed(self, position_ms: int) -> None:
         if not self._slider_seek.isSliderDown():
@@ -584,21 +683,101 @@ class MainWindow(QMainWindow):
         self._player.set_muted(checked)
         self._update_mute_icon(checked)
 
+    # ------------------------------------------------- Fase 4: vistas/ajustes
+    def _on_play_clicked(self) -> None:
+        """▶/⏸ unificado: pausa si suena; (re)anuda o arranca si no."""
+        self._player.toggle_pause()
+
+    def _set_view(self, mode: str, *, save: bool = True) -> None:
+        """Cambia la vista activa (menú Ver) y la recuerda en QSettings."""
+        if mode == VIEW_BIBLIOTECA:
+            self._stacked.setCurrentIndex(1)
+            action = self._action_view_biblioteca
+        else:
+            mode = VIEW_CANCIONES
+            self._stacked.setCurrentIndex(0)
+            action = self._action_view_canciones
+        action.setChecked(True)
+        if save:
+            self._settings.view_mode = mode
+
+    def _on_open_settings(self) -> None:
+        """Diálogo de Ajustes; aplica notificaciones al vuelo y prueba."""
+        stats: dict[str, int] | None
+        try:
+            stats = self._library.stats()
+        except Exception:  # noqa: BLE001 - la BD no debe tumbar el diálogo
+            stats = None
+        dialog = SettingsDialog(
+            self._settings,
+            notifier_backend=self._notifier.backend_name,
+            version=__version__,
+            library_stats=stats,
+            parent=self,
+        )
+        dialog.apply_settings.connect(self._apply_notification_settings)
+        dialog.test_notification.connect(self._send_test_notification)
+        dialog.exec()
+
+    def _apply_notification_settings(self, enabled: bool, timeout_ms: int) -> None:
+        """Persiste en QSettings y actualiza el Notifier en caliente."""
+        self._settings.notifications_enabled = enabled
+        self._settings.notifications_timeout_ms = timeout_ms
+        self._notifier.enabled = enabled
+        self._notifier.timeout_ms = timeout_ms
+        self.statusBar().showMessage(
+            f"Ajustes aplicados: notificaciones {'activadas' if enabled else 'desactivadas'}, "
+            f"{timeout_ms // 1000} s",
+            ERROR_TIMEOUT_MS,
+        )
+        logger.info(
+            "Ajustes de notificación aplicados (enabled=%s, timeout=%dms)",
+            enabled,
+            timeout_ms,
+        )
+
+    def _send_test_notification(self) -> None:
+        """Notificación de prueba por el MISMO camino que las de pista."""
+        try:
+            self._notifier.notify("Notificación de prueba", "PyAmp funciona correctamente ✓")
+        except Exception as exc:  # noqa: BLE001 - nunca romper la UI
+            logger.warning("Notificación de prueba falló: %s", exc)
+            self.statusBar().showMessage(f"La notificación falló: {exc}", ERROR_TIMEOUT_MS)
+        else:
+            self.statusBar().showMessage("Notificación de prueba enviada", ERROR_TIMEOUT_MS)
+
+    def _on_favorite_clicked(self) -> None:
+        """★ de la barra de transporte: alterna el favorito de la pista actual."""
+        track = self._player.current_track
+        if track is None or not track.path:
+            self._button_favorite.setChecked(False)
+            return
+        self._toggle_favorite(track)
+
+    def _on_favorite_row_toggled(self, track: object) -> None:
+        """Doble clic sobre ★ en la tabla: alterna y refresca la columna."""
+        if isinstance(track, Track) and track.path:
+            self._toggle_favorite(track)
+
+    def _toggle_favorite(self, track: Track) -> None:
+        """Alterna el favorito en la BD y refleja el cambio en la UI."""
+        try:
+            favorite = self._library.toggle_favorite(track.path)
+        except Exception as exc:  # noqa: BLE001 - la música no se detiene
+            logger.warning("No se pudo alternar el favorito: %s", exc)
+            self.statusBar().showMessage(f"Favorito no guardado: {exc}", ERROR_TIMEOUT_MS)
+            return
+        current = self._player.current_track
+        if current is not None and current.path == track.path:
+            self._button_favorite.setChecked(favorite)
+        # Aplazado: evitar reset del modelo dentro de la señal activated.
+        QTimer.singleShot(0, self._songs_table.refresh)
+        self.statusBar().showMessage(
+            "★ Añadida a favoritos" if favorite else "★ Quitada de favoritos",
+            ERROR_TIMEOUT_MS,
+        )
+
     # -------------------------------------------------------------- helpers
-    def _append_row(self, track: Track) -> None:
-        item = QListWidgetItem(track.display_title if not track.title else track.display_name)
-        item.setData(Qt.ItemDataRole.UserRole, track.path)
-        item.setToolTip(track.path)
-        self._playlist_widget.addItem(item)
-
-    def _rebuild_rows(self) -> None:
-        self._playlist_widget.clear()
-        for track in self._player.playlist:
-            self._append_row(track)
-        current = self._player.playlist.current_index
-        if 0 <= current < self._playlist_widget.count():
-            self._playlist_widget.setCurrentRow(current)
-
     def _update_time_label(self, position_ms: int) -> None:
         self._label_time.setText(f"{format_time(position_ms)} / {format_time(self._duration_ms)}")
 
@@ -617,17 +796,12 @@ class MainWindow(QMainWindow):
         if geometry is not None:
             self.restoreGeometry(geometry)
 
-        splitter_state = self._settings.window_splitter_state
-        if splitter_state is not None:
-            self._splitter.restoreState(splitter_state)
-
         restored: list[Track] = []
         for path in self._settings.playlist_paths:
             if Path(path).is_file():
                 restored.append(Track(path=path))
         if restored:
             self._player.playlist.add_many(restored)
-            self._rebuild_rows()
 
         index = self._settings.playlist_index
         if 0 <= index < len(self._player.playlist):
@@ -656,7 +830,6 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: object) -> None:
         """Guarda estado y apaga todo de forma ordenada."""
         self._settings.window_geometry = self.saveGeometry()
-        self._settings.window_splitter_state = self._splitter.saveState()
         self._settings.playlist_paths = [track.path for track in self._player.playlist]
         self._settings.playlist_index = self._player.playlist.current_index
 
@@ -665,6 +838,7 @@ class MainWindow(QMainWindow):
         if self._scanner is not None and self._scanner.isRunning():
             self._scanner.cancel()
             self._scanner.wait(10000)
+        self._spectrum.shutdown()
         self._notifier.close_all()
         self._player.shutdown()
         self._library.close()

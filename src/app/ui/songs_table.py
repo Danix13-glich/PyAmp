@@ -1,0 +1,270 @@
+"""Vista «Canciones»: tabla Nombre | Duración | Artista | ★ (Fase 4).
+
+Muestra el catálogo completo de la biblioteca. Arquitectura Qt estándar:
+``QAbstractTableModel`` + ``QSortFilterProxyModel``, de modo que la
+duración **ordena por milisegundos** (no por texto) y el filtro de
+búsqueda es local al modelo sin tocar la BD — la UI nunca bloquea.
+
+Señales:
+
+* ``track_activated(track, context_tracks)`` — doble clic o Enter sobre
+  una pista; ``context_tracks`` son todas las filas visibles (ese es el
+  contexto que la ventana convierte en playlist).
+* ``favorite_toggled(track)`` — doble clic sobre la columna ★.
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QModelIndex,
+    QPersistentModelIndex,
+    QSortFilterProxyModel,
+    Qt,
+    QTimer,
+    Signal,
+)
+from PySide6.QtWidgets import (
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QStyle,
+    QTableView,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from app.library.database import LibraryDatabase
+from app.library.models import Track
+from app.utils.time_format import format_time
+
+logger = logging.getLogger(__name__)
+
+#: Retardo del filtro de búsqueda (evita recalcular por tecla).
+SEARCH_DEBOUNCE_MS = 300
+
+COLUMN_NAME, COLUMN_DURATION, COLUMN_ARTIST, COLUMN_FAVORITE = range(4)
+HEADERS = ("Nombre", "Duración", "Artista", "★")
+
+#: Rol de ordenación: valor comparable de cada columna (str/ int).
+SORT_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+class SongsTableModel(QAbstractTableModel):
+    """Modelo plano de pistas para la tabla Canciones."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._tracks: list[Track] = []
+
+    def set_tracks(self, tracks: list[Track]) -> None:
+        """Reemplaza el contenido (refresh tras escanear o toggle ★)."""
+        self.beginResetModel()
+        self._tracks = list(tracks)
+        self.endResetModel()
+
+    def track_at(self, row: int) -> Track | None:
+        """Pista en la fila de origen (o None)."""
+        if 0 <= row < len(self._tracks):
+            return self._tracks[row]
+        return None
+
+    # ---------------------------------------------------------- interfaz Qt
+    def rowCount(  # noqa: N802
+        self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()
+    ) -> int:
+        return 0 if parent.isValid() else len(self._tracks)
+
+    def columnCount(  # noqa: N802
+        self, parent: QModelIndex | QPersistentModelIndex = QModelIndex()
+    ) -> int:
+        return 0 if parent.isValid() else len(HEADERS)
+
+    def headerData(  # noqa: N802
+        self, section: int, orientation: Qt.Orientation, role: int = Qt.ItemDataRole.DisplayRole
+    ) -> Any:
+        if (
+            orientation == Qt.Orientation.Horizontal
+            and role == Qt.ItemDataRole.DisplayRole
+            and 0 <= section < len(HEADERS)
+        ):
+            return HEADERS[section]
+        return None
+
+    def data(  # noqa: N802
+        self, index: QModelIndex | QPersistentModelIndex, role: int = Qt.ItemDataRole.DisplayRole
+    ) -> Any:
+        if not isinstance(index, QModelIndex) or not index.isValid():
+            return None
+        track = self._tracks[index.row()]
+        column = index.column()
+        if role == Qt.ItemDataRole.DisplayRole:
+            if column == COLUMN_NAME:
+                return track.display_title
+            if column == COLUMN_DURATION:
+                return format_time(track.duration_ms) if track.duration_ms > 0 else "—"
+            if column == COLUMN_ARTIST:
+                return track.display_artist
+            if column == COLUMN_FAVORITE:
+                return "★" if track.is_favorite else ""
+        elif role == Qt.ItemDataRole.ToolTipRole:
+            return track.path
+        elif role == SORT_ROLE:
+            if column == COLUMN_DURATION:
+                return track.duration_ms
+            if column == COLUMN_ARTIST:
+                return track.display_artist.casefold()
+            if column == COLUMN_FAVORITE:
+                return 1 if track.is_favorite else 0
+            return track.display_title.casefold()
+        return None
+
+
+class SongsTable(QWidget):
+    """Tabla del catálogo con buscador, ordenación y columna de favoritos."""
+
+    track_activated = Signal(object, list)
+    favorite_toggled = Signal(object)
+
+    def __init__(self, database: LibraryDatabase, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._database = database
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(4)
+
+        search_row = QHBoxLayout()
+        self._search_edit = QLineEdit()
+        self._search_edit.setPlaceholderText("Buscar nombre, artista o álbum...")
+        self._search_edit.setClearButtonEnabled(True)
+        search_row.addWidget(self._search_edit, stretch=1)
+        self._button_refresh = QToolButton()
+        self._button_refresh.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+        )
+        self._button_refresh.setToolTip("Refrescar canciones")
+        self._button_refresh.setAccessibleName("Refrescar canciones")
+        search_row.addWidget(self._button_refresh)
+        root.addLayout(search_row)
+
+        self._model = SongsTableModel(self)
+        self._proxy = QSortFilterProxyModel(self)
+        self._proxy.setSourceModel(self._model)
+        self._proxy.setSortRole(SORT_ROLE)
+        self._proxy.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._proxy.setFilterKeyColumn(-1)  # busca en todas las columnas
+
+        self._view = QTableView()
+        self._view.setModel(self._proxy)
+        self._view.setSortingEnabled(True)
+        self._view.sortByColumn(COLUMN_NAME, Qt.SortOrder.AscendingOrder)
+        self._view.setSelectionBehavior(QTableView.SelectionBehavior.SelectRows)
+        self._view.setSelectionMode(QTableView.SelectionMode.SingleSelection)
+        self._view.setEditTriggers(QTableView.EditTrigger.NoEditTriggers)
+        self._view.setAlternatingRowColors(True)
+        self._view.verticalHeader().setVisible(False)
+        self._view.setColumnWidth(COLUMN_NAME, 320)
+        self._view.setColumnWidth(COLUMN_DURATION, 80)
+        self._view.setColumnWidth(COLUMN_ARTIST, 220)
+        self._view.setColumnWidth(COLUMN_FAVORITE, 32)
+        root.addWidget(self._view, stretch=1)
+
+        self._empty_label = QLabel("")
+        self._empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        root.addWidget(self._empty_label)
+
+        self._stats_label = QLabel("")
+        self._stats_label.setToolTip("Catálogo cargado")
+        root.addWidget(self._stats_label)
+
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(SEARCH_DEBOUNCE_MS)
+        self._search_timer.timeout.connect(self._apply_filter)
+
+        self._search_edit.textChanged.connect(self._on_search_text_changed)
+        self._button_refresh.clicked.connect(self.refresh)
+        self._view.activated.connect(self._on_activated)
+
+    # ------------------------------------------------------------ API pública
+    @property
+    def view(self) -> QTableView:
+        """Vista subyacente (tests y accesibilidad)."""
+        return self._view
+
+    @property
+    def proxy(self) -> QSortFilterProxyModel:
+        """Proxy de orden/filtro (tests)."""
+        return self._proxy
+
+    @property
+    def model(self) -> SongsTableModel:
+        """Modelo de origen (tests)."""
+        return self._model
+
+    def refresh(self) -> None:
+        """Recarga el catálogo desde la BD (tras escaneos y favoritos)."""
+        try:
+            self._model.set_tracks(self._database.all_tracks())
+        except Exception as exc:  # noqa: BLE001 - una consulta no tumbará la UI
+            logger.warning("Canciones: fallo al recargar: %s", exc)
+        self._update_labels()
+
+    def search(self, term: str) -> None:
+        """Aplica un filtro de inmediato (sin debounce)."""
+        self._search_timer.stop()
+        self._search_edit.setText(term)
+        self._apply_filter()
+
+    # --------------------------------------------------------------- internos
+    def _on_search_text_changed(self, _text: str) -> None:
+        self._search_timer.start()
+
+    def _apply_filter(self) -> None:
+        self._proxy.setFilterFixedString(self._search_edit.text().strip())
+        self._update_labels()
+
+    def _update_labels(self) -> None:
+        visible = self._proxy.rowCount()
+        total = self._model.rowCount()
+        favorites = sum(1 for track in self._model._tracks if track.is_favorite)
+        term = self._search_edit.text().strip()
+        if visible == 0:
+            if term:
+                self._empty_label.setText(f"Sin resultados para «{term}»")
+            else:
+                self._empty_label.setText(
+                    "Biblioteca vacía — «Archivo → Escanear carpeta en biblioteca...»"
+                )
+            self._empty_label.show()
+        else:
+            self._empty_label.hide()
+        self._stats_label.setText(f"{visible} de {total} canciones · {favorites} favoritas")
+
+    def _on_activated(self, proxy_index: QModelIndex) -> None:
+        """Doble clic o Enter: ★ alterna favorito; el resto reproduce."""
+        if not proxy_index.isValid():
+            return
+        source_index = self._proxy.mapToSource(proxy_index)
+        track = self._model.track_at(source_index.row())
+        if track is None:
+            return
+        if proxy_index.column() == COLUMN_FAVORITE:
+            self.favorite_toggled.emit(track)
+            return
+        self.track_activated.emit(track, self.visible_tracks())
+
+    def visible_tracks(self) -> list[Track]:
+        """Pistas visibles en la vista actual (orden de la tabla)."""
+        tracks: list[Track] = []
+        for row in range(self._proxy.rowCount()):
+            source = self._proxy.mapToSource(self._proxy.index(row, COLUMN_NAME))
+            track = self._model.track_at(source.row())
+            if track is not None:
+                tracks.append(track)
+        return tracks

@@ -26,7 +26,7 @@ from .models import Album, Artist, Track
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS artists (
@@ -116,11 +116,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
     """Aplica los esquemas pendientes según ``PRAGMA user_version``."""
     row = conn.execute("PRAGMA user_version").fetchone()
     version = int(row[0]) if row is not None else 0
+
     if version < 1:
         conn.executescript(_SCHEMA_V1)
-        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        conn.execute("PRAGMA user_version = 1")
         conn.commit()
-        logger.info("Biblioteca inicializada (esquema v%d)", SCHEMA_VERSION)
+        logger.info("Biblioteca inicializada (esquema v1)")
+        version = 1
+
+    if version < 2:
+        # Fase 4: favoritos marcados por el usuario.
+        conn.execute("ALTER TABLE tracks ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0")
+        conn.execute("PRAGMA user_version = 2")
+        conn.commit()
+        logger.info("Biblioteca migrada a esquema v2 (favoritos)")
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -156,6 +165,7 @@ def row_to_track(row: sqlite3.Row) -> Track:
         added_at=row["added_at"],
         last_played_at=row["last_played_at"],
         play_count=row["play_count"] or 0,
+        is_favorite=bool(row["is_favorite"] or 0),
     )
 
 
@@ -316,6 +326,34 @@ def record_play_by_path(conn: sqlite3.Connection, path: str) -> bool:
     return cursor.rowcount > 0
 
 
+def toggle_favorite(conn: sqlite3.Connection, path: str) -> bool:
+    """Alterna el favorito de la pista con ese ``path``.
+
+    Si la pista aún no está en la biblioteca (música abierta sin escanear)
+    se crea una fila mínima para poder marcarla igualmente.
+
+    Returns:
+        El nuevo estado (True = favorito).
+    """
+    row = conn.execute("SELECT is_favorite FROM tracks WHERE path = ?", (path,)).fetchone()
+    if row is None:
+        upsert_track(conn, Track(path=path), commit=False)
+        conn.execute("UPDATE tracks SET is_favorite = 1 WHERE path = ?", (path,))
+        conn.commit()
+        logger.debug("Favorito creado para pista no indexada: %s", path)
+        return True
+    new_value = 0 if row["is_favorite"] else 1
+    conn.execute("UPDATE tracks SET is_favorite = ? WHERE path = ?", (new_value, path))
+    conn.commit()
+    return bool(new_value)
+
+
+def is_favorite(conn: sqlite3.Connection, path: str) -> bool:
+    """True si la pista con ese ``path`` está marcada como favorita."""
+    row = conn.execute("SELECT is_favorite FROM tracks WHERE path = ?", (path,)).fetchone()
+    return bool(row["is_favorite"]) if row is not None else False
+
+
 def _escape_like(term: str) -> str:
     """Escapa los comodines LIKE para búsqueda literal."""
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -368,6 +406,14 @@ class LibraryDatabase:
     def record_play_by_path(self, path: str) -> bool:
         """Registra una reproducción por path (True si la pista existía)."""
         return record_play_by_path(self._conn, path)
+
+    def toggle_favorite(self, path: str) -> bool:
+        """Alterna el favorito por path; devuelve el nuevo estado."""
+        return toggle_favorite(self._conn, path)
+
+    def is_favorite(self, path: str) -> bool:
+        """True si la pista con ese path está marcada como favorita."""
+        return is_favorite(self._conn, path)
 
     def track_states(self) -> dict[str, tuple[int | None, int | None]]:
         """Mapa path → (mtime, size) para el escáner incremental."""
