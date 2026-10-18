@@ -26,8 +26,8 @@ from PySide6.QtWidgets import QWidget
 
 logger = logging.getLogger(__name__)
 
-#: Número de barras dibujadas (ajuste Fase 5: ecualizador de 5 bandas).
-BAR_COUNT = 5
+#: Número de barras dibujadas (ajuste Fase 6: 12 bandas iguales).
+BAR_COUNT = 12
 
 #: Parámetros de la captura (float32 mono).
 SAMPLE_RATE = 44100
@@ -42,8 +42,9 @@ DECAY = 0.86
 FREQ_MIN = 40.0
 FREQ_MAX = 16000.0
 
-#: Altura del widget (ajuste Fase 5: más compacto).
-SPECTRUM_HEIGHT = 32
+#: Altura del widget: el doble que en Fase 5 (las barras llegan a ~60 px
+#: de alto total, arriba y abajo de la línea central).
+SPECTRUM_HEIGHT = 64
 
 #: Ancho del widget (fijo: 5 barras caben sin estirarse; en la cabecera
 #: horizontal un QWidget sin ancho mínimo colapsaba a 0 y no se veía).
@@ -208,8 +209,12 @@ class SpectrumWidget(QWidget):
         """FFT → 40 niveles 0..1 en escala logarítmica de frecuencia."""
         if chunk.size < 512:
             return None
-        windowed = chunk * np.hanning(chunk.size)
-        magnitudes = np.abs(np.fft.rfft(windowed))
+        window = np.hanning(chunk.size)
+        magnitudes = np.abs(np.fft.rfft(chunk * window))
+        # Normalizar a amplitud 0..1 (un seno a escala completa da 1.0).
+        # Sin esto, las magnitudes crudas de la FFT (cientos) saturaban la
+        # escala dB y TODAS las barras se quedaban pegadas al máximo.
+        magnitudes /= max(1e-9, float(window.sum()) / 2.0)
         bands = np.array(
             [magnitudes[mask].max() if mask.any() else 0.0 for mask in self._masks],
             dtype=np.float32,
@@ -231,16 +236,17 @@ class SpectrumWidget(QWidget):
         gap = 2
         width = rect.width()
         height = rect.height()
+        mid = height // 2  # línea central: cada barra crece hacia arriba y abajo
+        max_half = max(1, (height - 4) // 2)  # altura máxima = alto completo
         bar_width = max(2, (width - gap * (BAR_COUNT + 1)) // BAR_COUNT)
         for index, level in enumerate(np.asarray(self._bars)):
-            bar_height = int(float(level) * (height - 6))
-            if bar_height <= 0:
+            half = int(float(level) * max_half)
+            if half <= 0:
                 continue
             x = gap + index * (bar_width + gap)
-            top = height - 3 - bar_height
             # Azul: tono fijo, más brillante cuanto más fuerte es el nivel.
             color = QColor.fromHsv(BAR_HUE, 190, 150 + int(105 * float(level)))
-            painter.fillRect(x, top, bar_width, bar_height, color)
+            painter.fillRect(x, mid - half, bar_width, half * 2, color)
         painter.setPen(QColor(70, 70, 70))
-        painter.drawLine(0, height - 3, width, height - 3)
+        painter.drawLine(0, mid, width, mid)  # línea divisoria en la mitad
         painter.end()

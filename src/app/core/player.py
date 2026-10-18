@@ -60,6 +60,7 @@ _MERGED_FIELDS = (
     "bitrate",
     "samplerate",
     "channels",
+    "codec",
 )
 
 

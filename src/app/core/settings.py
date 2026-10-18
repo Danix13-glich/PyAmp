@@ -11,6 +11,7 @@ llega en la Fase 3; aquí las claves ya existen y se respetan).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from PySide6.QtCore import QByteArray, QSettings
@@ -27,6 +28,7 @@ KEY_NOTIFICATIONS_TIMEOUT_MS = "notifications/timeout_ms"
 KEY_WINDOW_GEOMETRY = "window/geometry"
 KEY_VIEW_MODE = "ui/view_mode"
 KEY_SHOW_SPECTRUM = "ui/show_spectrum"
+KEY_SHORTCUTS = "shortcuts/custom"
 
 DEFAULT_VOLUME = 100
 DEFAULT_TIMEOUT_MS = 5000
@@ -38,6 +40,24 @@ VIEW_CANCIONES = "canciones"
 VIEW_BIBLIOTECA = "biblioteca"
 VIEW_MODES = {VIEW_CANCIONES, VIEW_BIBLIOTECA}
 DEFAULT_VIEW_MODE = VIEW_CANCIONES
+
+#: Atajos personalizables (Ajustes → Atajos): id → secuencia por defecto.
+#: Solo los IDs de esta tabla se pueden reasignar; las teclas multimedia
+#: del hardware quedan fijas (no tienen representación portable).
+SHORTCUT_DEFAULTS: dict[str, str] = {
+    "prev": "F9",
+    "play_pause": "F10",
+    "next": "F11",
+    "lyrics": "Ctrl+L",
+    "view_canciones": "Ctrl+1",
+    "view_biblioteca": "Ctrl+2",
+    "open_files": "Ctrl+O",
+    "open_folder": "Ctrl+Shift+O",
+    "load_playlist": "Ctrl+Shift+L",
+    "save_playlist": "Ctrl+Shift+S",
+    "settings": "Ctrl+,",
+    "quit": "Ctrl+Q",
+}
 
 
 def _as_bool(value: Any, default: bool) -> bool:
@@ -189,6 +209,31 @@ class Settings:
     @show_spectrum.setter
     def show_spectrum(self, value: bool) -> None:
         self.set_value(KEY_SHOW_SPECTRUM, bool(value))
+
+    # --------------------------------------------------------------- atajos
+    @property
+    def shortcuts(self) -> dict[str, str]:
+        """Atajos personalizados (id de atajo → secuencia portable).
+
+        Solo se guardan los que difieren de su valor por defecto: un id
+        ausente significa «usa el valor por defecto». Se serializan como
+        JSON en una única clave para que el ``.conf`` siga siendo legible.
+        """
+        raw = self._raw(KEY_SHORTCUTS, "")
+        if not raw:
+            return {}
+        try:
+            data = json.loads(str(raw))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {str(key): str(value) for key, value in data.items()}
+
+    @shortcuts.setter
+    def shortcuts(self, mapping: dict[str, str]) -> None:
+        clean = {str(key): str(value) for key, value in mapping.items() if str(key)}
+        self.set_value(KEY_SHORTCUTS, json.dumps(clean, ensure_ascii=False, sort_keys=True))
 
 
 _instance: Settings | None = None

@@ -42,6 +42,7 @@ from PySide6.QtWidgets import (
 from app.core.player import STATE_PAUSED, STATE_PLAYING, STATE_STOPPED, Player
 from app.core.playlist import audio_filter_string, collect_audio_files
 from app.core.settings import (
+    SHORTCUT_DEFAULTS,
     VIEW_BIBLIOTECA,
     VIEW_CANCIONES,
     Settings,
@@ -49,7 +50,7 @@ from app.core.settings import (
 )
 from app.library.covers import extract_cover
 from app.library.database import LibraryDatabase
-from app.library.metadata import read_metadata
+from app.library.metadata import format_audio_info, read_metadata
 from app.library.models import Track
 from app.library.scanner import ScannerThread
 from app.notifications.notifier import Notifier
@@ -74,19 +75,6 @@ WINDOW_INITIAL_SIZE = (630, 485)
 
 #: Separación (px) entre la ventana principal y la de letra.
 LYRICS_GAP_PX = 8
-
-#: Nombre mostrado del códec por extensión (franja técnica de la cabecera).
-CODEC_BY_EXTENSION = {
-    ".aac": "AAC",
-    ".flac": "FLAC",
-    ".m4a": "AAC",
-    ".mp4": "AAC",
-    ".oga": "OGG Vorbis",
-    ".ogg": "OGG Vorbis",
-    ".opus": "Opus",
-    ".wav": "WAV",
-    ".wma": "WMA",
-}
 
 
 class _FolderLoader(QThread):
@@ -146,6 +134,7 @@ class MainWindow(QMainWindow):
         self._last_folder = str(Path.home())
         self._mpris: Any = None  # MprisAdapter (solo Linux; ver _init_mpris)
         self._lyrics_window: LyricsWindow | None = None
+        self._shortcut_actions: dict[str, QAction] = {}
 
         self._build_ui()
         self._connect_signals()
@@ -297,14 +286,14 @@ class MainWindow(QMainWindow):
         file_menu = self.menuBar().addMenu("&Archivo")
 
         action_open_files = QAction("Abrir &archivo(s)...", self)
-        action_open_files.setShortcut(QKeySequence.StandardKey.Open)
         action_open_files.triggered.connect(self._on_open_files)
+        self._register_shortcut("open_files", action_open_files)
         file_menu.addAction(action_open_files)
 
         action_open_folder = QAction("Abrir &carpeta...", self)
-        action_open_folder.setShortcut(QKeySequence("Ctrl+Shift+O"))
         action_open_folder.triggered.connect(self._on_open_folder)
         self._action_open_folder = action_open_folder
+        self._register_shortcut("open_folder", action_open_folder)
         file_menu.addAction(action_open_folder)
 
         action_scan = QAction("Escanear carpeta en &biblioteca...", self)
@@ -315,13 +304,13 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
 
         action_load = QAction("&Cargar playlist...", self)
-        action_load.setShortcut(QKeySequence("Ctrl+Shift+L"))
         action_load.triggered.connect(self._on_load_playlist)
+        self._register_shortcut("load_playlist", action_load)
         file_menu.addAction(action_load)
 
         action_save = QAction("&Guardar playlist como...", self)
-        action_save.setShortcut(QKeySequence.StandardKey.SaveAs)
         action_save.triggered.connect(self._on_save_playlist)
+        self._register_shortcut("save_playlist", action_save)
         file_menu.addAction(action_save)
 
         file_menu.addSeparator()
@@ -333,20 +322,20 @@ class MainWindow(QMainWindow):
         file_menu.addSeparator()
 
         action_quit = QAction("&Salir", self)
-        action_quit.setShortcut(QKeySequence.StandardKey.Quit)
         action_quit.triggered.connect(self.close)
+        self._register_shortcut("quit", action_quit)
         file_menu.addAction(action_quit)
 
         # --- menú Ver: tipo de vista (persistida en QSettings) ---
         view_menu = self.menuBar().addMenu("&Ver")
         self._action_view_canciones = QAction("Canciones (&tabla)", self)
         self._action_view_canciones.setCheckable(True)
-        self._action_view_canciones.setShortcut(QKeySequence("Ctrl+1"))
         self._action_view_canciones.triggered.connect(lambda: self._set_view(VIEW_CANCIONES))
+        self._register_shortcut("view_canciones", self._action_view_canciones)
         self._action_view_biblioteca = QAction("&Biblioteca (árbol)", self)
         self._action_view_biblioteca.setCheckable(True)
-        self._action_view_biblioteca.setShortcut(QKeySequence("Ctrl+2"))
         self._action_view_biblioteca.triggered.connect(lambda: self._set_view(VIEW_BIBLIOTECA))
+        self._register_shortcut("view_biblioteca", self._action_view_biblioteca)
         view_group = QActionGroup(self)
         view_group.setExclusive(True)
         view_group.addAction(self._action_view_canciones)
@@ -363,57 +352,101 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self._action_show_spectrum)
 
         action_lyrics = QAction("Ver &letra", self)
-        action_lyrics.setShortcut(QKeySequence("Ctrl+L"))
         action_lyrics.triggered.connect(self._on_show_lyrics)
+        self._register_shortcut("lyrics", action_lyrics)
         view_menu.addAction(action_lyrics)
 
         # --- menú Editar ---
         edit_menu = self.menuBar().addMenu("&Editar")
         action_settings = QAction("&Ajustes...", self)
-        action_settings.setShortcut(QKeySequence.StandardKey.Preferences)
         action_settings.triggered.connect(self._on_open_settings)
+        self._register_shortcut("settings", action_settings)
         edit_menu.addAction(action_settings)
 
         self._build_shortcuts()
 
+    def _register_shortcut(self, shortcut_id: str, action: QAction) -> None:
+        """Vincula la acción a su atajo (personalizado o por defecto).
+
+        Todas las acciones se quedan registradas en
+        ``_shortcut_actions`` para poder reasignarlas en caliente desde
+        Ajustes (``apply_shortcuts``) sin reconstruir los menús.
+        """
+        self._shortcut_actions[shortcut_id] = action
+        default = SHORTCUT_DEFAULTS[shortcut_id]
+        sequence = self._settings.shortcuts.get(shortcut_id, default)
+        action.setShortcut(QKeySequence(sequence))
+
+    def _apply_shortcuts(self) -> None:
+        """Reaplica los atajos (personalizados o por defecto) a las acciones."""
+        custom = self._settings.shortcuts
+        for shortcut_id, action in self._shortcut_actions.items():
+            sequence = custom.get(shortcut_id, SHORTCUT_DEFAULTS[shortcut_id])
+            action.setShortcut(QKeySequence(sequence))
+        self._refresh_shortcut_labels()
+
+    def _shortcut_label(self, shortcut_id: str) -> str:
+        """Texto actual del atajo (para tooltips y nombres visibles)."""
+        action = self._shortcut_actions.get(shortcut_id)
+        if action is None:
+            return SHORTCUT_DEFAULTS[shortcut_id]
+        return action.shortcut().toString(QKeySequence.SequenceFormat.PortableText)
+
+    def _refresh_shortcut_labels(self) -> None:
+        """Actualiza los tooltips del transporte que citan sus teclas."""
+        prev_label = f"Anterior ({self._shortcut_label('prev')})"
+        self._button_prev.setToolTip(prev_label)
+        self._button_prev.setAccessibleName(prev_label)
+        next_label = f"Siguiente ({self._shortcut_label('next')})"
+        self._button_next.setToolTip(next_label)
+        self._button_next.setAccessibleName(next_label)
+        self._on_state_changed(self._player.state)
+
     def _build_shortcuts(self) -> None:
-        """Teclas multimedia y F9/F10/F11 (ApplicationShortcut: basta con  que la ventana esté activa, sin necesidad del foco del ratón).
+        """Teclas multimedia (fijas) y atajos de transporte reasignables.
 
         Las teclas multimedia usan los enums ``Qt.Key`` (el parse por
-        nombre «MediaPlay» no produce una secuencia portable en Qt6).
+        nombre «MediaPlay» no produce una secuencia portable en Qt6) y
+        quedan fuera del catálogo personalizable: son teclas de hardware.
+        F9/F10/F11 sí pasan por ``_register_shortcut`` (Ajustes → Atajos).
         """
-        shortcuts: tuple[tuple[QKeySequence, str, Callable[..., Any]], ...] = (
+        media_shortcuts: tuple[tuple[QKeySequence, str, Callable[..., Any]], ...] = (
             (
                 QKeySequence(Qt.Key.Key_MediaPrevious),
-                "Pista anterior",
+                "Pista anterior (multimedia)",
                 self._player.prev,
             ),
             (
                 QKeySequence(Qt.Key.Key_MediaTogglePlayPause),
-                "Reproducir/pausar",
+                "Reproducir/pausar (multimedia)",
                 self._on_play_clicked,
             ),
-            (QKeySequence(Qt.Key.Key_MediaPlay), "Reproducir", self._player.play),
-            (QKeySequence(Qt.Key.Key_MediaPause), "Pausar", self._player.pause),
+            (QKeySequence(Qt.Key.Key_MediaPlay), "Reproducir (multimedia)", self._player.play),
+            (QKeySequence(Qt.Key.Key_MediaPause), "Pausar (multimedia)", self._player.pause),
             (
                 QKeySequence(Qt.Key.Key_MediaNext),
-                "Pista siguiente",
+                "Pista siguiente (multimedia)",
                 self._player.next,
             ),
-            (QKeySequence("F9"), "Pista anterior (F9)", self._player.prev),
-            (
-                QKeySequence("F10"),
-                "Reproducir/pausar (F10)",
-                self._on_play_clicked,
-            ),
-            (QKeySequence("F11"), "Pista siguiente (F11)", self._player.next),
         )
-        for sequence, name, slot in shortcuts:
+        for sequence, name, slot in media_shortcuts:
             action = QAction(name, self)
             action.setShortcut(sequence)
             action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
             action.triggered.connect(slot)
             self.addAction(action)  # la ventana mantiene viva la acción
+
+        for shortcut_id, name, slot in (
+            ("prev", "Pista anterior", self._player.prev),
+            ("play_pause", "Reproducir/pausar", self._on_play_clicked),
+            ("next", "Pista siguiente", self._player.next),
+        ):
+            action = QAction(name, self)
+            action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
+            action.triggered.connect(slot)
+            self.addAction(action)
+            self._register_shortcut(shortcut_id, action)
+        self._refresh_shortcut_labels()
 
     def _make_button(
         self,
@@ -681,7 +714,7 @@ class MainWindow(QMainWindow):
         self._label_artist.setToolTip(track.path)
         self._label_album.setText(track.album or "")
         self._label_album.setVisible(bool(track.album))
-        self._label_format.setText(self._format_audio_info(track))
+        self._label_format.setText(format_audio_info(track))
         cover = self._cover_for(track)
         self._cover_label.set_cover(cover)
 
@@ -704,46 +737,19 @@ class MainWindow(QMainWindow):
         if self._mpris is not None:
             self._mpris.update_metadata(cover or "")
 
-    def _format_audio_info(self, track: Track) -> str:
-        """Texto técnico de la cabecera: «MPEG-1 layer 3, estéreo, 44 kHz, 128 kbit/s».
-
-        El códec sale de la extensión (`.mp3` distingue MPEG-1/2 según la
-        frecuencia de muestreo); el resto, de los metadatos del archivo.
-        """
-        extension = Path(track.path).suffix.lower()
-        if extension == ".mp3":
-            khz = (track.samplerate or 0) / 1000
-            if not khz:
-                codec = "MPEG layer 3"
-            else:
-                codec = "MPEG-1 layer 3" if khz >= 32 else "MPEG-2 layer 3"
-        else:
-            codec = CODEC_BY_EXTENSION.get(extension, "")
-        parts = [codec] if codec else []
-        if track.channels == 1:
-            parts.append("mono")
-        elif track.channels == 2:
-            parts.append("estéreo")
-        elif track.channels:
-            parts.append(f"{track.channels} canales")
-        if track.samplerate:
-            parts.append(f"{round(track.samplerate / 1000)} kHz")
-        if track.bitrate:
-            parts.append(f"{round(track.bitrate / 1000)} kbit/s")
-        return ", ".join(parts)
-
     def _on_state_changed(self, state: str) -> None:
         """Refleja el estado en el icono del play unificado y el espectro."""
         playing = state == STATE_PLAYING
+        play_label = self._shortcut_label("play_pause")
         if playing:
             icon = QStyle.StandardPixmap.SP_MediaPause
-            tooltip = "Pausar (F10)"
+            tooltip = f"Pausar ({play_label})"
         elif state == STATE_PAUSED:
             icon = QStyle.StandardPixmap.SP_MediaPlay
-            tooltip = "Reanudar (F10)"
+            tooltip = f"Reanudar ({play_label})"
         else:
             icon = QStyle.StandardPixmap.SP_MediaPlay
-            tooltip = "Reproducir (F10)"
+            tooltip = f"Reproducir ({play_label})"
         self._button_play.setIcon(self.style().standardIcon(icon))
         self._button_play.setToolTip(tooltip)
         self._button_play.setAccessibleName(tooltip)
@@ -827,8 +833,16 @@ class MainWindow(QMainWindow):
             parent=self,
         )
         dialog.apply_settings.connect(self._apply_notification_settings)
+        dialog.apply_shortcuts.connect(self._apply_shortcuts_from_dialog)
         dialog.test_notification.connect(self._send_test_notification)
         dialog.exec()
+
+    def _apply_shortcuts_from_dialog(self, mapping: dict) -> None:
+        """Persiste los atajos elegidos y los reaplica al vuelo."""
+        clean = {key: str(value) for key, value in dict(mapping).items()}
+        self._settings.shortcuts = clean
+        self._apply_shortcuts()
+        self.statusBar().showMessage("Atajos de teclado actualizados", ERROR_TIMEOUT_MS)
 
     def _apply_notification_settings(self, enabled: bool, timeout_ms: int) -> None:
         """Persiste en QSettings y actualiza el Notifier en caliente."""

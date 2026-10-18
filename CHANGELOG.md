@@ -77,6 +77,12 @@ y el proyecto sigue [SemVer](https://semver.org/lang/es/spec/v2.0.0.html).
   - `src/app/utils/paths.py`: `LYRICS_DIR` (`<datos>/PyAmp/lyrics/`).
   - `src/app/core/settings.py`: clave `ui/show_spectrum` (espectrograma visible por defecto).
   - Tests: letras (parser, sidecar, sincronización) en `tests/test_library_panel.py`; regresiones de posición y play/pausa en `tests/test_player.py` — total 61 tests.
+- **Ronda de ajustes post-Fase 5 — versión 0.1.5**:
+  - Info de formato **real** en la cabecera: `Track._codec_name()` + `_CODEC_BY_CLASS` + `format_audio_info()` (`library/metadata.py`) derivan el códec de los **metadatos** de mutagen (clase `*Info`), nunca de la extensión; el campo `codec` entra en la fusión de metadatos (`_MERGED_FIELDS`) y la franja inferior muestra p. ej. «WAV, mono, 8 kHz, 128 kbit/s». Los MP3 corruptos quedan en «Archivo de audio» sin inventar datos.
+  - Espectrograma rediseñado: **12 barras** iguales (`BAR_COUNT=12`) **simétricas** respecto a una línea central, 120 px de ancho fijo y **64 px de alto** (el doble que en Fase 5).
+  - Ajustes → «Atajos de teclado»: cuadrícula de `QKeySequenceEdit` para reasignar 12 atajos (transporte, vistas, archivo, letra, ajustes, salir); solo se persisten los que difieren del valor por defecto (`shortcuts/custom` en QSettings, `SHORTCUT_DEFAULTS` en `core/settings.py`) y la ventana principal los reaplica al vuelo; vacío = valor por defecto. Las teclas de hardware del sistema (MPRIS) no se tocan.
+  - Letra sin LRC: en vez de una lista vacía, la ventana de letra muestra «Letra no disponible :(» centrado en gris (`PLACEHOLDER_TEXT`), que desaparece al encontrar letra real o al cambiar de pista.
+  - Tests: 71 en total (códec real, espectro, atajos, letras).
 
 ### Removed
 - (Fase 4) Splitter biblioteca|playlist y la lista lateral visible: ahora hay UNA vista a todo el ancho; la cola interna se controla con el transporte (▶/siguiente/anterior). La clave `window/splitter_state` se sustituye por `ui/view_mode`.
@@ -98,5 +104,13 @@ y el proyecto sigue [SemVer](https://semver.org/lang/es/spec/v2.0.0.html).
 - Los E2E ya no tocan la configuración real: usan `XDG_CONFIG_HOME`/`XDG_DATA_HOME` aislados (los anteriores habían dejado la playlist de prueba «Rojo/Azul» y una geometría offscreen en el QSettings real; se limpiaron).
 - Workaround en `VlcBackend`: libVLC (Fedora 44, VLC 3.0.23) hace SIGSEGV si se llama `audio_set_volume`/`audio_set_mute` antes de existir la salida de audio; el volumen/mute se difiere hasta que `is_playing()` es True.
 - `_stringify` de metadatos: `ID3TimeStamp.text` es `str` (no se debe iterar como lista; provocaba año `"2"` en lugar de `"2024"`).
+- Espectrograma con las barras **pegadas al máximo** (0.81–1.00 en casi
+  todas las bandas, incluso sin señal fuerte): `_compute()` comparaba las
+  magnitudes **crudas** de la FFT (cientos) contra una escala de −60..0 dB
+  pensada para amplitudes 0..1, así que todo saturaba a `1.0`. Ahora se
+  normalizan dividiendo por la ganancia de la ventana (`sum(hann)/2`, un
+  seno a escala completa da 1.0) y cada barra sigue el nivel real de su
+  banda (verificado: banda del tono ~0.97, bandas vacías 0.00, silencio
+  0.00).
 
 [Unreleased]: https://github.com/Danix13-glich/PyAmp/compare/v0.1.0...HEAD

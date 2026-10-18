@@ -1,12 +1,4 @@
 #!/usr/bin/env python3
-"""Punto de entrada de PyAmp.
-
-Arranca logging, la aplicación Qt y la ventana principal (UI mínima de la
-Fase 1). La UI definitiva Winamp llega en la Fase 3.
-
-Uso:
-    python main.py
-"""
 
 from __future__ import annotations
 

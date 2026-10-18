@@ -5,9 +5,11 @@ Busca la letra en dos sitios, en este orden:
 1. Junto al audio: ``cancion.lrc`` (mismo nombre y carpeta).
 2. En la biblioteca de letras de la app: ``<datos>/PyAmp/lyrics/``.
 
-La ventana es independiente (``Qt.Window``), se sitúa junto a la principal
-y sigue la reproducción: la línea que coincide con la posición actual se
-resalta en negrita azul. Sin metadatos de red: solo archivos locales.
+Si no hay letra para la pista (o no hay pista), el panel muestra el
+aviso centrado «Letra no disponible :(". La ventana es independiente
+(``Qt.Window``), se sitúa junto a la principal y sigue la reproducción:
+la línea que coincide con la posición actual se resalta en negrita azul.
+Sin metadatos de red: solo archivos locales.
 """
 
 from __future__ import annotations
@@ -37,7 +39,9 @@ logger = logging.getLogger(__name__)
 LRC_TIME_RE = re.compile(r"\[(\d{1,2}):(\d{1,2})(?:[.:](\d{1,3}))?\]")
 
 WINDOW_TITLE_MIN = (260, 320)
-NO_LRC_TEXT = "Sin letra"
+
+#: Aviso centrado cuando la pista no tiene letra disponible.
+PLACEHOLDER_TEXT = "Letra no disponible :("
 
 
 def parse_lrc(text: str) -> list[tuple[int, str]]:
@@ -106,6 +110,16 @@ class LyricsWindow(QDialog):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         layout.addWidget(self._list, stretch=1)
 
+        self._placeholder = QLabel(PLACEHOLDER_TEXT)
+        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._placeholder.setWordWrap(True)
+        placeholder_font = QFont(self._placeholder.font())
+        placeholder_font.setPointSize(placeholder_font.pointSize() + 1)
+        self._placeholder.setFont(placeholder_font)
+        self._placeholder.setStyleSheet("color: #9e9ea6;")
+        layout.addWidget(self._placeholder, stretch=1)
+        self._placeholder.hide()
+
         self._status = QLabel("")
         self._status.setWordWrap(True)
         layout.addWidget(self._status)
@@ -128,37 +142,49 @@ class LyricsWindow(QDialog):
         """Índice de la línea resaltada (-1 si no hay ninguna)."""
         return self._active_row
 
+    @property
+    def showing_placeholder(self) -> bool:
+        """True si se muestra el aviso «Letra no disponible :(» centrado."""
+        return not self._placeholder.isHidden()
+
     def show_track(self, track: Track | None) -> None:
         """Carga (o limpia) la letra de la pista indicada."""
         self._entries = []
         self._times = []
         self._active_row = -1
         self._list.clear()
+        self._set_placeholder(False)
 
         if track is None or not track.path:
             self._label_track.setText("—")
             self._status.setText("No hay ninguna pista en reproducción")
+            self._set_placeholder(True)
             return
 
         self._label_track.setText(track.display_name)
         lrc_path = find_lrc_path(track.path)
         if lrc_path is None:
-            self._list.addItem(NO_LRC_TEXT)
             stem = Path(track.path).stem
             self._status.setText(f"No encontré «{stem}.lrc» (junto al audio o en {LYRICS_DIR})")
+            self._set_placeholder(True)
             return
 
         try:
             text = lrc_path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
             logger.warning("No se pudo leer la letra %s: %s", lrc_path, exc)
-            self._list.addItem(NO_LRC_TEXT)
             self._status.setText(f"No se pudo leer {lrc_path.name}: {exc}")
+            self._set_placeholder(True)
             return
 
         self._entries = parse_lrc(text)
         if not self._entries:
-            self._list.addItem(text.strip() or NO_LRC_TEXT)
+            raw = text.strip()
+            if not raw:
+                self._status.setText(f"{lrc_path.name}: sin marcas de tiempo [mm:ss]")
+                self._set_placeholder(True)
+                return
+            self._list.addItem(raw)
             self._status.setText(f"{lrc_path.name}: sin marcas de tiempo [mm:ss]")
             return
 
@@ -166,6 +192,11 @@ class LyricsWindow(QDialog):
         for _position_ms, lyric in self._entries:
             self._list.addItem(lyric)
         self._times = [position_ms for position_ms, _lyric in self._entries]
+
+    def _set_placeholder(self, visible: bool) -> None:
+        """Muestra el aviso centrado (y oculta la lista) o al revés."""
+        self._placeholder.setVisible(visible)
+        self._list.setVisible(not visible)
 
     def sync_position(self, position_ms: int) -> None:
         """Resalta la línea que corresponde a la posición actual."""

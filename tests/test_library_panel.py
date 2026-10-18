@@ -14,10 +14,17 @@ from pathlib import Path
 import numpy as np
 import pytest
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QKeySequence
 from PySide6.QtWidgets import QApplication
 
 from app.core.player import Player
-from app.core.settings import MAX_TIMEOUT_MS, MIN_TIMEOUT_MS, get_settings
+from app.core.settings import (
+    MAX_TIMEOUT_MS,
+    MIN_TIMEOUT_MS,
+    SHORTCUT_DEFAULTS,
+    Settings,
+    get_settings,
+)
 from app.library.database import LibraryDatabase
 from app.library.models import Album, Track
 from app.ui.cover_widget import CoverLabel
@@ -359,6 +366,70 @@ def test_settings_dialog_reads_settings_and_emits_apply(qapp: QApplication) -> N
     assert settings.notifications_enabled == original_enabled
 
 
+# ------------------------------------------- atajos personalizables (ajustes)
+def test_settings_shortcuts_roundtrip_isolated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Settings.shortcuts: JSON en QSettings aislado (nunca el real del usuario)."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    settings = Settings()
+
+    assert settings.shortcuts == {}  # sin personalización: vacío
+
+    settings.shortcuts = {"next": "Ctrl+9", "play_pause": "F5"}
+    assert settings.shortcuts == {"next": "Ctrl+9", "play_pause": "F5"}
+
+    settings.shortcuts = {}
+    assert settings.shortcuts == {}
+
+
+def test_settings_shortcuts_ignores_corrupt_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """JSON corrupto en la clave -> {} (nunca excepción al arrancar)."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    settings = Settings()
+    settings.set_value("shortcuts/custom", "{no es json")
+
+    assert settings.shortcuts == {}
+
+
+def test_settings_dialog_shortcut_edits_match_catalog(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Una fila de QKeySequenceEdit por cada ID del catálogo, con el default."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    dialog = SettingsDialog(
+        Settings(),
+        notifier_backend="test-backend",
+        version="0.1.0",
+    )
+
+    assert set(dialog._shortcut_edits) == set(SHORTCUT_DEFAULTS)  # noqa: SLF001 - tests
+    edit = dialog._shortcut_edits["next"]  # noqa: SLF001 - tests
+    assert edit.keySequence().toString() == SHORTCUT_DEFAULTS["next"]
+
+
+def test_settings_dialog_collects_only_custom_shortcuts(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """apply_shortcuts emite solo las secuencias rellenadas (no vacías)."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    dialog = SettingsDialog(
+        Settings(),
+        notifier_backend="test-backend",
+        version="0.1.0",
+    )
+
+    collected: list[dict[str, str]] = []
+    dialog.apply_shortcuts.connect(lambda mapping: collected.append(dict(mapping)))
+
+    dialog._shortcut_edits["next"].setKeySequence(QKeySequence("Ctrl+9"))  # noqa: SLF001 - tests
+    dialog._on_accepted()  # noqa: SLF001 - tests
+
+    assert collected == [{"next": "Ctrl+9"}]
+
+
 # ---------------------------------------------- espectrograma (Fase 4)
 def test_spectrum_widget_paints_and_computes_levels(qapp: QApplication) -> None:
     widget = SpectrumWidget()
@@ -370,7 +441,7 @@ def test_spectrum_widget_paints_and_computes_levels(qapp: QApplication) -> None:
     pixmap = widget.grab()
     assert not pixmap.isNull()
 
-    # FFT de un chunk sintético → 40 niveles normalizados 0..1.
+    # FFT de un chunk sintético → BAR_COUNT niveles normalizados 0..1.
     chunk = np.full(CHUNK_FRAMES, 0.2, dtype=np.float32)
     levels = widget._compute(chunk)  # noqa: SLF001 - tests
     assert levels is not None
@@ -391,10 +462,10 @@ def test_spectrum_widget_start_stop_and_shutdown_are_safe(qapp: QApplication) ->
 
 
 def test_spectrum_widget_is_compact_and_blue_bars(qapp: QApplication) -> None:
-    """Ajuste Fase 5: 5 barras, 32 px de alto y 120 px de ancho fijo."""
+    """Ajuste Fase 5: 12 barras simétricas (línea central), 64 px de alto y 120 px de ancho fijo."""
     widget = SpectrumWidget()
-    assert BAR_COUNT == 5
-    assert widget.minimumHeight() == 32
+    assert BAR_COUNT == 12
+    assert widget.minimumHeight() == 64  # el doble que en Fase 5 (32 px)
     assert widget.width() == 120  # ancho fijo (no colapsa en filas horizontales)
 
 
@@ -464,7 +535,23 @@ def test_lyrics_window_without_lrc_is_harmless(qapp: QApplication, tmp_path: Pat
     window.show_track(Track(path=str(audio), title="Sin letra"))
 
     assert window.entries == []
+    assert window.showing_placeholder  # «Letra no disponible :(» centrado
     window.sync_position(1000)  # sin entradas: no-op sin crash
     assert window.active_row == -1
     window.show_track(None)  # sin pista
     assert window.entries == []
+    assert window.showing_placeholder
+
+
+def test_lyrics_window_hides_placeholder_when_lrc_exists(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    audio = tmp_path / "tema-conletra-test.mp3"
+    audio.write_bytes(b"")
+    (tmp_path / "tema-conletra-test.lrc").write_text("[00:05]Hola\n", encoding="utf-8")
+    window = LyricsWindow()
+
+    window.show_track(Track(path=str(audio), title="Con letra"))
+
+    assert window.entries == [(5000, "Hola")]
+    assert not window.showing_placeholder  # hay letra: la lista se ve, sin aviso

@@ -15,7 +15,13 @@ import pytest
 from mutagen.id3 import TALB, TDRC, TIT2, TPE1, TPOS, TRCK
 from mutagen.wave import WAVE
 
-from app.library.metadata import MetadataError, extract_cover, read_metadata
+from app.library.metadata import (
+    MetadataError,
+    extract_cover,
+    format_audio_info,
+    read_metadata,
+)
+from app.library.models import Track
 
 # PNG de 1x1 píxel (base64) para simular una carátula incrustada.
 TINY_PNG = base64.b64decode(
@@ -123,3 +129,47 @@ def test_extract_cover_missing_file_raises(tmp_path: Path) -> None:
     """Archivo inexistente al extraer carátula -> MetadataError."""
     with pytest.raises(MetadataError):
         extract_cover(tmp_path / "no-existe.flac", dest_dir=tmp_path / "covers")
+
+
+# ------------------------------------------- códec y texto real (ajustes)
+def test_read_metadata_reports_real_codec(tmp_path: Path) -> None:
+    """El códec viene de mutagen (clase WAVE), nunca de la extensión."""
+    path = _tag_wav(_make_wav(tmp_path / "codec-test.wav"))
+    track = read_metadata(path)
+
+    assert track.codec == "WAV"
+    assert track.bitrate == 128000  # 8 kHz * 16 bit * 1 canal, real
+
+
+def test_read_corrupt_file_has_no_codec(tmp_path: Path) -> None:
+    """Archivo ilegible: sin códec inventado (se omite del texto)."""
+    broken = tmp_path / "roto-sin-codec.mp3"
+    broken.write_bytes(b"esto no es un mp3 " * 100)
+
+    track = read_metadata(broken)
+
+    assert track.codec is None
+    assert format_audio_info(track) == ""
+
+
+def test_format_audio_info_builds_from_real_fields(tmp_path: Path) -> None:
+    """«WAV, mono, 8 kHz, 128 kbit/s» solo con datos reales del archivo."""
+    path = _tag_wav(_make_wav(tmp_path / "formato-test.wav", rate=8000))
+    track = read_metadata(path)
+
+    assert format_audio_info(track) == "WAV, mono, 8 kHz, 128 kbit/s"
+
+
+def test_format_audio_info_omits_missing_fields() -> None:
+    """Los campos desconocidos se omiten; nada se rellena por adivinación."""
+    assert format_audio_info(Track(path="/x/a.mp3")) == ""
+    assert (
+        format_audio_info(Track(path="/x/a.mp3", codec="MPEG-1 layer 3", samplerate=44100))
+        == "MPEG-1 layer 3, 44 kHz"
+    )
+    assert (
+        format_audio_info(
+            Track(path="/x/a.flac", codec="FLAC", channels=6, samplerate=96000, bitrate=1411200)
+        )
+        == "FLAC, 6 canales, 96 kHz, 1411 kbit/s"
+    )

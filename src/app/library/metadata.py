@@ -109,6 +109,65 @@ def _to_int(value: Any) -> int | None:
 
 
 # ------------------------------------------------------------------ lectura
+#: Códec por clase concreta que mutagen detecta al abrir el archivo.
+_CODEC_BY_CLASS = {
+    "AIFF": "AIFF",
+    "FLAC": "FLAC",
+    "MP4": "AAC",
+    "OggFLAC": "FLAC",
+    "OggOpus": "Opus",
+    "OggVorbis": "OGG Vorbis",
+    "WAVE": "WAV",
+}
+
+
+def _codec_name(audio: object) -> str | None:
+    """Códec real detectado por mutagen (clase + cabecera MPEG).
+
+    Para MP3 lee ``version``/``layer`` de la cabecera del primer frame
+    (MPEGInfo): 1 → «MPEG-1 layer 3», 2 → «MPEG-2 layer 3», etc. Para
+    el resto, el nombre según la clase que mutagen identificó. None si
+    no hay dato real (nunca se adivina por la extensión).
+    """
+    name = type(audio).__name__
+    if name == "MP3":
+        info = getattr(audio, "info", None)
+        version = getattr(info, "version", None)
+        layer = getattr(info, "layer", None)
+        if version and layer:
+            label = {1: "1", 2: "2", 2.5: "2.5"}.get(version, str(version))
+            return f"MPEG-{label} layer {layer}"
+        return "MPEG" if version else None
+    return _CODEC_BY_CLASS.get(name)
+
+
+def format_audio_info(track: Track) -> str:
+    """Texto técnico «MPEG-1 layer 3, estéreo, 44 kHz, 128 kbit/s».
+
+    Solo datos **reales** del archivo: códec de la cabecera (mutagen),
+    canales, frecuencia de muestreo y bitrate. Los campos sin
+    información se omiten — nada se adivina.
+
+    Args:
+        track: Pista con los metadatos ya leídos.
+
+    Returns:
+        Cadena separada por comas (vacía si no hay ningún dato real).
+    """
+    parts = [track.codec] if track.codec else []
+    if track.channels == 1:
+        parts.append("mono")
+    elif track.channels == 2:
+        parts.append("estéreo")
+    elif track.channels:
+        parts.append(f"{track.channels} canales")
+    if track.samplerate:
+        parts.append(f"{round(track.samplerate / 1000)} kHz")
+    if track.bitrate:
+        parts.append(f"{round(track.bitrate / 1000)} kbit/s")
+    return ", ".join(parts)
+
+
 def read_metadata(path: str | Path) -> Track:
     """Lee los metadatos de un archivo de audio.
 
@@ -139,6 +198,7 @@ def read_metadata(path: str | Path) -> Track:
         return track
 
     tags = audio.tags
+    track.codec = _codec_name(audio)
     track.title = _first_tag(tags, _TITLE_KEYS)
     track.artist = _first_tag(tags, _ARTIST_KEYS)
     track.album = _first_tag(tags, _ALBUM_KEYS)

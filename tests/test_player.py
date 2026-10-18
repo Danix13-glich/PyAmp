@@ -89,3 +89,20 @@ def test_toggle_pause_roundtrip(qapp: QApplication, tmp_path: Path) -> None:
         assert player.state == STATE_PLAYING
     finally:
         player.shutdown()
+
+
+def test_play_merges_real_codec_from_file(qapp: QApplication, tmp_path: Path) -> None:
+    """Al reproducir, el códec real (mutagen) se fusiona en la pista actual."""
+    wav = make_wav(tmp_path / "codec-merge.wav", seconds=1)
+    player = Player(settings=get_settings())
+    if not player.is_available:
+        pytest.skip("VLC no disponible en este entorno")
+    try:
+        player.add_paths([str(wav)])
+        assert player.play_index(0) is True
+
+        current = player.current_track
+        assert current is not None
+        assert current.codec == "WAV"  # leído del archivo, no adivinado
+    finally:
+        player.shutdown()

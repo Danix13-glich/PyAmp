@@ -43,6 +43,9 @@ class Track:
     bitrate: int | None = None
     samplerate: int | None = None
     channels: int | None = None
+    #: Códec detectado por mutagen en la cabecera real («MPEG-1 layer 3»,
+    #: «FLAC», «WAV»…); None mientras no se haya leído el archivo.
+    codec: str | None = None
     cover_path: str | None = None
     # Gestión de archivo/BD (Fase 2).
     file_size: int | None = None
