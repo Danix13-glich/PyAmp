@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import platform
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -154,6 +155,29 @@ class Notifier:
             self._send("PyAmp", title, body, None)
         except Exception as exc:  # noqa: BLE001
             logger.error("Error en notificación genérica: %s", exc)
+
+    def notify_history(self, on_click: Callable[[], None] | None = None) -> None:
+        # Aviso mensual del historial: si el backend admite acción, al pulsar
+        # la notificación se ejecuta `on_click` (abrir el ranking).
+        if not self.enabled:
+            return
+        title = tr("Tu historial del mes ya está listo")
+        body = tr("Pulsa para ver las 10 canciones más escuchadas del mes pasado.")
+        try:
+            action_sender = getattr(self._backend, "notify_action", None)
+            if callable(action_sender):
+                action_sender(
+                    app_name="PyAmp",
+                    title=title,
+                    body=body,
+                    action_label=tr("Ver historial"),
+                    on_action=on_click,
+                    timeout_ms=0,
+                )
+            else:
+                self._send("PyAmp", title, body, None)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Error en notificación de historial: %s", exc)
 
     def close_all(self) -> None:
         if self._backend is None or self._backend == "plyer":

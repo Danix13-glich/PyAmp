@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import sys
 from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -46,14 +47,15 @@ from app.core.settings import (
 )
 from app.i18n import set_language, tr
 from app.library.covers import extract_cover
-from app.library.database import LibraryDatabase
+from app.library.database import LibraryDatabase, previous_month_key
 from app.library.metadata import format_audio_info, read_metadata, write_metadata
 from app.library.models import RadioStation, Track
 from app.library.scanner import ScannerThread
 from app.notifications.notifier import Notifier
-from app.radio import RadioLibrary
+from app.radio import RadioLibrary, RadioSearchWorker
 from app.themes import DEFAULT_THEME_ID, Theme, get_theme, load_themes, reload_themes
 from app.ui.cover_widget import CoverLabel
+from app.ui.history_window import HistoryWindow
 from app.ui.lyrics_editor import LyricsEditorDialog
 from app.ui.lyrics_window import LyricsWindow
 from app.ui.metadata_editor import MetadataEditorDialog
@@ -124,6 +126,8 @@ class MainWindow(QMainWindow):
     #: Peticiones MPRIS llegadas del bus (hilo ajeno → hilo de UI).
     _raise_requested = Signal()
     _quit_requested = Signal()
+    #: Pulsar la notificación del historial (hilo D-Bus → hilo de UI).
+    _history_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -152,6 +156,7 @@ class MainWindow(QMainWindow):
         self._mpris: Any = None  # MprisAdapter (solo Linux; ver _init_mpris)
         self._lyrics_window: LyricsWindow | None = None
         self._radio_station: RadioStation | None = None
+        self._radio_search: RadioSearchWorker | None = None
         #: True mientras la vista activa es la de radio (oculta transporte local).
         self._radio_view = False
         self._shortcut_actions: dict[str, QAction] = {}
@@ -164,6 +169,7 @@ class MainWindow(QMainWindow):
         self._connect_signals()
         self._restore_state()
         self._init_mpris()
+        self._maybe_notify_history()
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:
@@ -442,6 +448,12 @@ class MainWindow(QMainWindow):
         self._register_shortcut("settings", action_settings)
         edit_menu.addAction(action_settings)
 
+        # --- menú Historial: ranking mensual (siempre visible) ---
+        history_menu = self.menuBar().addMenu(tr("&Historial"))
+        action_history = QAction(tr("Ver historial del mes"), self)
+        action_history.triggered.connect(self._on_show_history)
+        history_menu.addAction(action_history)
+
         self._build_shortcuts()
 
     def _register_shortcut(self, shortcut_id: str, action: QAction) -> None:
@@ -564,6 +576,7 @@ class MainWindow(QMainWindow):
         # Peticiones MPRIS (llegan desde el hilo del bus → hilo de UI).
         self._raise_requested.connect(self._raise_and_activate)
         self._quit_requested.connect(self.close)
+        self._history_requested.connect(self._on_show_history)
 
         self._songs_table.track_activated.connect(self._on_library_track_activated)
         self._songs_table.favorite_toggled.connect(self._on_favorite_row_toggled)
@@ -576,6 +589,7 @@ class MainWindow(QMainWindow):
         self._radio_panel.play_requested.connect(self._on_radio_play)
         self._radio_panel.stop_requested.connect(self._on_radio_stop)
         self._radio_panel.station_selected.connect(self._on_radio_selection)
+        self._radio_panel.search_requested.connect(self._on_radio_search)
 
         if not player.is_available:
             self.statusBar().showMessage(player.backend_error or tr("Audio no disponible"), 0)
@@ -990,6 +1004,43 @@ class MainWindow(QMainWindow):
         self._radio_station = None
         self._radio_panel.show_message(tr("Radio detenida"))
 
+    def _on_radio_search(self) -> None:
+        if self._radio_search is not None and self._radio_search.isRunning():
+            return
+        self._radio_panel.set_searching(True)
+        worker = RadioSearchWorker(self)
+        self._radio_search = worker
+        worker.finished_ok.connect(self._on_radio_search_done)
+        worker.failed.connect(self._on_radio_search_failed)
+        worker.finished.connect(self._on_radio_search_finished)
+        worker.start()
+
+    def _on_radio_search_done(self, stations: object) -> None:
+        results = stations if isinstance(stations, list) else []
+        known = {station.url for station in self._radio.stations()}
+        merged = self._radio.found_stations()
+        added = 0
+        for station in results:
+            if not isinstance(station, RadioStation) or station.url in known:
+                continue
+            known.add(station.url)
+            merged.append(station)
+            added += 1
+        self._radio.set_found_stations(merged)
+        self._radio_panel.refresh()
+        self.statusBar().showMessage(
+            tr("Se encontraron {n} emisoras").format(n=added), ERROR_TIMEOUT_MS
+        )
+
+    def _on_radio_search_failed(self, message: str) -> None:
+        self.statusBar().showMessage(
+            tr("No se pudieron buscar emisoras: {error}").format(error=message), ERROR_TIMEOUT_MS
+        )
+
+    def _on_radio_search_finished(self) -> None:
+        self._radio_panel.set_searching(False)
+        self._radio_search = None
+
     def _on_radio_selection(self, station: object) -> None:
         if isinstance(station, RadioStation):
             self._radio_station = station
@@ -1338,6 +1389,29 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             tr("Repetición desactivada (repetida una vez)"), ERROR_TIMEOUT_MS
         )
+
+    # ------------------------------------------------------------- historial
+    def _on_show_history(self) -> None:
+        ready = datetime.now().day == 1
+        entries = self._library.monthly_top(previous_month_key(), 10) if ready else []
+        window = HistoryWindow(entries, ready=ready and bool(entries), parent=self)
+        window.exec()
+
+    def _maybe_notify_history(self) -> None:
+        # El día 1 de cada mes se avisa; al pulsar la notificación se abre el
+        # ranking del último mes terminado. Solo una vez por mes.
+        now = datetime.now()
+        if now.day != 1 or not self._notifier.enabled:
+            return
+        month = now.strftime("%Y-%m")
+        if self._settings.history_notified_month == month:
+            return
+        try:
+            self._notifier.notify_history(self._history_requested.emit)
+        except Exception as exc:  # noqa: BLE001 - nunca romper el arranque
+            logger.warning("Aviso del historial falló: %s", exc)
+        else:
+            self._settings.history_notified_month = month
 
     # ------------------------------------------------ 0.1.6: editor de letras
     def _on_edit_lyrics(self) -> None:

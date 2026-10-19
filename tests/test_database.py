@@ -11,7 +11,10 @@ from app.library.database import (
     SCHEMA_VERSION,
     LibraryDatabase,
     cleanup_orphan_albums_artists,
+    current_month_key,
+    monthly_top,
     open_connection,
+    previous_month_key,
     record_play_by_path,
 )
 from app.library.models import Track
@@ -258,10 +261,17 @@ def test_migration_v1_to_v2_adds_favorite_column(tmp_path: Path) -> None:
     database = LibraryDatabase(path)
     try:
         row = database.connection.execute("PRAGMA user_version").fetchone()
-        assert row is not None and row[0] == SCHEMA_VERSION == 3
+        assert row is not None and row[0] == SCHEMA_VERSION == 4
         columns = {r["name"] for r in database.connection.execute("PRAGMA table_info(tracks)")}
         assert "is_favorite" in columns
         assert "is_hidden" in columns
+        tables = {
+            r["name"]
+            for r in database.connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+        assert "play_history" in tables
     finally:
         database.close()
 
@@ -439,3 +449,42 @@ def test_scanner_reports_invalid_folder(qapp: QApplication, tmp_path: Path) -> N
 
     assert errors and "no válida" in errors[0]
     assert summaries  # finished se emite siempre (limpieza de la UI)
+
+
+# ------------------------------------------------- historial mensual (0.2.1)
+def test_current_and_previous_month_keys() -> None:
+    from datetime import datetime
+
+    reference = datetime(2026, 3, 1, 9, 30)
+    assert current_month_key(reference) == "2026-03"
+    assert previous_month_key(reference) == "2026-02"
+    # Cambio de año.
+    assert previous_month_key(datetime(2026, 1, 1)) == "2025-12"
+
+
+def test_record_play_updates_monthly_history(db: LibraryDatabase) -> None:
+    db.upsert_track(Track(path="/m/hit.mp3", title="Hit", artist="Alfa"))
+
+    assert db.record_play_by_path("/m/hit.mp3") is True
+    assert db.record_play_by_path("/m/hit.mp3") is True
+
+    top = db.monthly_top(current_month_key())
+    assert len(top) == 1
+    assert top[0]["path"] == "/m/hit.mp3"
+    assert top[0]["count"] == 2
+    assert top[0]["title"] == "Hit"
+
+
+def test_monthly_top_orders_by_count(db: LibraryDatabase) -> None:
+    for index, plays in enumerate((1, 3, 2)):
+        path = f"/m/song{index}.mp3"
+        db.upsert_track(Track(path=path, title=f"Canción {index}"))
+        for _ in range(plays):
+            db.record_play_by_path(path)
+
+    top = db.monthly_top(current_month_key())
+    assert [entry["path"] for entry in top] == ["/m/song1.mp3", "/m/song2.mp3", "/m/song0.mp3"]
+
+
+def test_monthly_top_empty_for_unknown_month(db: LibraryDatabase) -> None:
+    assert monthly_top(db.connection, "1999-01") == []

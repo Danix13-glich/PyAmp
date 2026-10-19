@@ -16,12 +16,11 @@ def _settings(tmp_path: Path) -> Settings:
     return Settings(tmp_path / "radio-test.conf")
 
 
-def test_builtin_stations_are_listed(tmp_path: Path) -> None:
+def test_stations_start_empty(tmp_path: Path) -> None:
     library = RadioLibrary(_settings(tmp_path))
-    stations = library.stations()
-    assert stations
-    assert all(station.builtin for station in stations)
+    assert library.stations() == []
     assert library.custom_stations() == []
+    assert library.found_stations() == []
 
 
 def test_add_and_remove_custom_station(tmp_path: Path) -> None:
@@ -55,6 +54,19 @@ def test_update_custom_station(tmp_path: Path) -> None:
     assert library.update("http://example.com/otra", RadioStation("X", "http://x")) is False
 
 
+def test_found_stations_persist_and_are_listed(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    library = RadioLibrary(settings)
+    found = [
+        RadioStation("Jazz FM", "http://example.com/j", "Jazz", "España"),
+        RadioStation("Suiza Pop", "http://example.com/s", "Pop", "Suiza"),
+    ]
+    library.set_found_stations(found)
+
+    again = RadioLibrary(Settings(tmp_path / "radio-test.conf")).stations()
+    assert [station.name for station in again] == ["Jazz FM", "Suiza Pop"]
+
+
 def test_corrupt_json_is_ignored(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     settings.radio_stations = "{no es json"
@@ -63,15 +75,22 @@ def test_corrupt_json_is_ignored(tmp_path: Path) -> None:
 
 def test_search_matches_name_genre_and_country(tmp_path: Path) -> None:
     library = RadioLibrary(_settings(tmp_path))
+    library.set_found_stations(
+        [
+            RadioStation("Jazz FM", "http://example.com/j", "Jazz", "España"),
+            RadioStation("Suiza Pop", "http://example.com/s", "Pop", "Suiza"),
+        ]
+    )
     assert library.search("jazz")
     assert library.search("suiza")
     assert library.search("") == library.stations()
     assert library.search("no-existe-xyz") == []
 
 
-def test_builtin_station_can_be_edited(tmp_path: Path) -> None:
+def test_found_station_can_be_edited(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     library = RadioLibrary(settings)
+    library.set_found_stations([RadioStation("Vieja", "http://example.com/v", "Pop", "España")])
     base = library.stations()[0]
     edited = RadioStation("Nombre nuevo", base.url, "Rock", "España")
 
@@ -80,19 +99,36 @@ def test_builtin_station_can_be_edited(tmp_path: Path) -> None:
     assert current.name == "Nombre nuevo"
     assert current.genre == "Rock"
     assert current.country == "España"
-    assert current.builtin is True
     assert library.custom_stations() == []
 
 
-def test_builtin_station_can_be_removed(tmp_path: Path) -> None:
+def test_found_station_can_be_removed(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
     library = RadioLibrary(settings)
+    library.set_found_stations([RadioStation("Vieja", "http://example.com/v")])
     url = library.stations()[0].url
 
     library.remove(url)
 
     assert all(station.url != url for station in library.stations())
     assert all(station.url != url for station in RadioLibrary(settings).stations())
+
+
+def test_parse_stations_ignores_broken_entries() -> None:
+    from app.radio import parse_stations
+
+    payload = [
+        {"name": "Buena", "url_resolved": "http://a", "tags": "pop,rock", "country": "España"},
+        {"name": "Repetida", "url_resolved": "http://a"},
+        {"name": "", "url_resolved": "http://vacia"},
+        {"name": "Sin URL"},
+        "no soy un dict",
+    ]
+
+    stations = parse_stations(payload)
+    assert len(stations) == 1
+    assert stations[0].name == "Buena"
+    assert stations[0].genre == "pop"
 
 
 def test_radio_dialog_includes_country(qapp: QApplication, tmp_path: Path) -> None:
@@ -163,6 +199,7 @@ def test_player_play_stream_emits_track(qapp: QApplication, tmp_path: Path) -> N
 
 def test_panel_emits_play_for_selected_station(qapp: QApplication, tmp_path: Path) -> None:
     library = RadioLibrary(_settings(tmp_path))
+    library.set_found_stations([RadioStation("Uno", "http://uno", "Pop", "España")])
     panel = RadioPanel(library)
     received: list[RadioStation] = []
     panel.play_requested.connect(received.append)
@@ -170,4 +207,38 @@ def test_panel_emits_play_for_selected_station(qapp: QApplication, tmp_path: Pat
     panel._table.setCurrentCell(0, 0)  # noqa: SLF001 - tests
     panel._button_play.click()  # noqa: SLF001 - tests
 
-    assert received and received[0] is library.stations()[0]
+    assert len(received) == 1
+    assert received[0].name == "Uno"
+    assert received[0].url == "http://uno"
+
+
+def test_panel_empty_state_offers_search(qapp: QApplication, tmp_path: Path) -> None:
+    library = RadioLibrary(_settings(tmp_path))
+    panel = RadioPanel(library)
+    requested: list[int] = []
+    panel.search_requested.connect(lambda: requested.append(1))
+
+    assert panel._normal.isHidden() and not panel._empty.isHidden()  # noqa: SLF001 - tests
+    assert panel._button_search.isEnabled()  # noqa: SLF001 - tests
+
+    panel._button_search.click()  # noqa: SLF001 - tests
+    assert requested == [1]
+
+
+def test_panel_select_relative_wraps_and_plays(qapp: QApplication, tmp_path: Path) -> None:
+    library = RadioLibrary(_settings(tmp_path))
+    library.set_found_stations(
+        [
+            RadioStation("Uno", "http://uno", "Pop", "España"),
+            RadioStation("Dos", "http://dos", "Rock", "España"),
+        ]
+    )
+    panel = RadioPanel(library)
+    played: list[RadioStation] = []
+    panel.play_requested.connect(played.append)
+
+    panel.select_relative(1)
+    panel.select_relative(1)  # avanza a la segunda
+    panel.select_relative(-1)  # vuelve a la primera
+
+    assert [station.name for station in played] == ["Uno", "Dos", "Uno"]

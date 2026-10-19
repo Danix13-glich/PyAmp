@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from app.utils.paths import DATABASE_FILE
@@ -11,7 +11,7 @@ from .models import Album, Artist, Track
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS artists (
@@ -78,6 +78,19 @@ def now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def current_month_key(moment: datetime | None = None) -> str:
+    """Mes actual como ``AAAA-MM``."""
+    return (moment or datetime.now()).strftime("%Y-%m")
+
+
+def previous_month_key(moment: datetime | None = None) -> str:
+    """Mes anterior (el último terminado) como ``AAAA-MM``."""
+    reference = moment or datetime.now()
+    first = reference.replace(day=1)
+    previous = first - timedelta(days=1)
+    return previous.strftime("%Y-%m")
+
+
 def open_connection(path: str | Path) -> sqlite3.Connection:
     db_path = Path(path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +125,20 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA user_version = 3")
         conn.commit()
         logger.info("Biblioteca migrada a esquema v3 (ocultos)")
+
+    if version < 4:
+        # Reproducciones contadas por mes (para el Historial mensual).
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS play_history (
+                month TEXT NOT NULL,
+                path TEXT NOT NULL,
+                count INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (month, path)
+            )
+            """)
+        conn.execute("PRAGMA user_version = 4")
+        conn.commit()
+        logger.info("Biblioteca migrada a esquema v4 (historial mensual)")
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -273,8 +300,35 @@ def record_play_by_path(conn: sqlite3.Connection, path: str) -> bool:
         "UPDATE tracks SET play_count = play_count + 1, last_played_at = ? " "WHERE path = ?",
         (now_iso(), path),
     )
+    # Contador mensual para el Historial (se guarda aunque la pista se borre).
+    conn.execute(
+        """INSERT INTO play_history (month, path, count) VALUES (?, ?, 1)
+           ON CONFLICT(month, path) DO UPDATE SET count = count + 1""",
+        (current_month_key(), path),
+    )
     conn.commit()
     return cursor.rowcount > 0
+
+
+def monthly_top(conn: sqlite3.Connection, month: str, limit: int = 10) -> list[dict[str, object]]:
+    rows = conn.execute(
+        """SELECT h.path AS path, h.count AS count, t.title AS title, t.artist AS artist
+           FROM play_history h
+           LEFT JOIN tracks t ON t.path = h.path
+           WHERE h.month = ?
+           ORDER BY h.count DESC, h.path
+           LIMIT ?""",
+        (month, limit),
+    ).fetchall()
+    return [
+        {
+            "path": row["path"],
+            "count": int(row["count"]),
+            "title": row["title"],
+            "artist": row["artist"],
+        }
+        for row in rows
+    ]
 
 
 def toggle_favorite(conn: sqlite3.Connection, path: str) -> bool:
@@ -393,6 +447,9 @@ class LibraryDatabase:
 
     def record_play_by_path(self, path: str) -> bool:
         return record_play_by_path(self._conn, path)
+
+    def monthly_top(self, month: str, limit: int = 10) -> list[dict[str, object]]:
+        return monthly_top(self._conn, month, limit)
 
     def toggle_favorite(self, path: str) -> bool:
         return toggle_favorite(self._conn, path)

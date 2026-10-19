@@ -224,6 +224,15 @@ _EN: dict[str, str] = {
     "Suiza": "Switzerland",
     "Francia": "France",
     "España": "Spain",
+    "Buscar emisoras": "Search stations",
+    "Busca emisoras online de tu zona": "Search online stations near you",
+    "Aún no tienes emisoras. Busca las de tu zona.": (
+        "You have no stations yet. Search for ones near you."
+    ),
+    "Buscando emisoras…": "Searching stations…",
+    "Usando tu ubicación para buscarlas…": "Using your location to find them…",
+    "Se encontraron {n} emisoras": "Found {n} stations",
+    "No se pudieron buscar emisoras: {error}": "Could not search stations: {error}",
     # ----------------------------------------------------------------- letra
     "Letra — PyAmp": "Lyrics — PyAmp",
     "Letra no disponible :(": "Lyrics not available :(",
@@ -303,6 +312,19 @@ _EN: dict[str, str] = {
     "N.º de disco:": "Disc no.:",
     # ------------------------------------------------------- 0.2.0: radio
     "Editar Valores": "Edit values",
+    # ------------------------------------------------ 0.2.1: historial mensual
+    "&Historial": "&History",
+    "Ver historial del mes": "View this month's history",
+    "Historial — PyAmp": "History — PyAmp",
+    "Las 10 canciones más escuchadas": "The 10 most played songs",
+    "Aún no está listo :/": "Not ready yet :/",
+    "Cerrar": "Close",
+    "{rank}. {title} — {artist}  ({count}×)": "{rank}. {title} — {artist}  ({count}×)",
+    "Tu historial del mes ya está listo": "Your monthly history is ready",
+    "Pulsa para ver las 10 canciones más escuchadas del mes pasado.": (
+        "Click to see the 10 most played songs from last month."
+    ),
+    "Ver historial": "View history",
 }
 
 

@@ -7,58 +7,9 @@ import json
 from app.core.settings import Settings
 from app.library.models import RadioStation
 
-#: Emisoras incluidas de serie. Las URLs son públicas y pueden cambiar.
-BUILTIN_STATIONS: tuple[RadioStation, ...] = (
-    RadioStation(
-        "Radio Paradise", "https://stream.radioparadise.com/aac-320", "Eclectic", "EE. UU.", True
-    ),
-    RadioStation(
-        "SomaFM Groove Salad",
-        "https://ice1.somafm.com/groovesalad-128-mp3",
-        "Chillout",
-        "EE. UU.",
-        True,
-    ),
-    RadioStation("SomaFM Lush", "https://ice1.somafm.com/lush-128-mp3", "Ambient", "EE. UU.", True),
-    RadioStation(
-        "Radio Swiss Jazz", "https://stream.srg-ssr.ch/m/rsj/mp3_128", "Jazz", "Suiza", True
-    ),
-    RadioStation(
-        "Radio Swiss Classic",
-        "https://stream.srg-ssr.ch/m/rsc_de/mp3_128",
-        "Clásica",
-        "Suiza",
-        True,
-    ),
-    RadioStation(
-        "France Inter",
-        "https://icecast.radiofrance.fr/franceinter-midfi.mp3",
-        "Actualidad",
-        "Francia",
-        True,
-    ),
-    RadioStation(
-        "Cadena SER",
-        "https://flucast-m06-03.flumotion.com/copesedes/ser.mp3",
-        "Actualidad",
-        "España",
-        True,
-    ),
-    RadioStation(
-        "LOS40",
-        "https://playerservices.streamtheworld.com/api/livestream-redirect/Los40.mp3",
-        "Pop",
-        "España",
-        True,
-    ),
-    RadioStation(
-        "RNE Radio 3",
-        "https://rtvelivestream.akamaized.net/rtvesec/rne/rne_r3_main.m3u8",
-        "Cultura",
-        "España",
-        True,
-    ),
-)
+#: Emisoras incluidas de serie. Ahora vacío a propósito: la lista arranca
+#: sin emisoras y el usuario las busca por su zona (o las añade a mano).
+BUILTIN_STATIONS: tuple[RadioStation, ...] = ()
 
 
 def _load(raw: str, default: object) -> object:
@@ -94,8 +45,23 @@ class RadioLibrary:
         """True si la URL pertenece a una emisora incluida de serie."""
         return any(station.url == url for station in BUILTIN_STATIONS)
 
+    def found_stations(self) -> list[RadioStation]:
+        """Emisoras encontradas por ubicación (guardadas en local)."""
+        data = _load(self._settings.radio_found, [])
+        if not isinstance(data, list):
+            return []
+        stations: list[RadioStation] = []
+        for item in data:
+            station = _station_from_dict(item)
+            if station is not None:
+                stations.append(station)
+        return stations
+
+    def set_found_stations(self, stations: list[RadioStation]) -> None:
+        self._settings.radio_found = json.dumps([_as_dict(s) for s in stations], ensure_ascii=False)
+
     def stations(self) -> list[RadioStation]:
-        """Todas las emisoras visibles: incluidas (con cambios) + propias."""
+        """Todas las emisoras visibles: incluidas (con cambios) + propias + buscadas."""
         overrides = self._overrides()
         hidden = self._hidden()
         result: list[RadioStation] = []
@@ -116,6 +82,7 @@ class RadioLibrary:
             else:
                 result.append(base)
         result.extend(self.custom_stations())
+        result.extend(self.found_stations())
         return result
 
     def search(self, term: str) -> list[RadioStation]:
@@ -146,6 +113,14 @@ class RadioLibrary:
             overrides[old_url] = change
             self._save_overrides(overrides)
             return True
+        found = self.found_stations()
+        if any(item.url == old_url for item in found):
+            for index, item in enumerate(found):
+                if item.url == old_url:
+                    found[index] = _clean(station)
+                    break
+            self.set_found_stations(found)
+            return True
         current = self.custom_stations()
         for index, item in enumerate(current):
             if item.url == old_url:
@@ -163,6 +138,10 @@ class RadioLibrary:
             overrides = self._overrides()
             if overrides.pop(url, None) is not None:
                 self._save_overrides(overrides)
+            return
+        found = self.found_stations()
+        if any(item.url == url for item in found):
+            self.set_found_stations([item for item in found if item.url != url])
             return
         self._save_custom([item for item in self.custom_stations() if item.url != url])
 

@@ -32,6 +32,8 @@ KEY_LIBRARY_FOLDERS = "library/folders"
 KEY_RADIO_STATIONS = "radio/stations"
 KEY_RADIO_OVERRIDES = "radio/overrides"
 KEY_RADIO_HIDDEN = "radio/hidden"
+KEY_RADIO_FOUND = "radio/found"
+KEY_HISTORY_NOTIFIED = "history/notified_month"
 
 DEFAULT_VOLUME = 100
 DEFAULT_TIMEOUT_MS = 5000
@@ -357,6 +359,25 @@ class Settings:
     @radio_hidden.setter
     def radio_hidden(self, value: str) -> None:
         self.set_value(KEY_RADIO_HIDDEN, str(value))
+
+    @property
+    def radio_found(self) -> str:
+        raw = self._raw(KEY_RADIO_FOUND, "")
+        return str(raw) if raw else ""
+
+    @radio_found.setter
+    def radio_found(self, value: str) -> None:
+        self.set_value(KEY_RADIO_FOUND, str(value))
+
+    # --------------------------------------------------------------- historial
+    @property
+    def history_notified_month(self) -> str:
+        raw = self._raw(KEY_HISTORY_NOTIFIED, "")
+        return str(raw) if raw else ""
+
+    @history_notified_month.setter
+    def history_notified_month(self, value: str) -> None:
+        self.set_value(KEY_HISTORY_NOTIFIED, str(value))
 
 
 _instance: Settings | None = None

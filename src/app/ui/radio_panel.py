@@ -65,12 +65,19 @@ class RadioPanel(QWidget):
     play_requested = Signal(object)  # RadioStation
     stop_requested = Signal()
     station_selected = Signal(object)  # RadioStation
+    search_requested = Signal()
 
     def __init__(self, radio: RadioLibrary, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._radio = radio
 
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # --- Página normal (con emisoras) ---
+        self._normal = QWidget()
+        layout = QVBoxLayout(self._normal)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
@@ -124,10 +131,33 @@ class RadioPanel(QWidget):
 
         self._status = QLabel("")
         layout.addWidget(self._status)
+        outer.addWidget(self._normal, stretch=1)
+
+        # --- Página vacía (primera vez): botón centrado «Buscar emisoras» ---
+        self._empty = QWidget()
+        empty_layout = QVBoxLayout(self._empty)
+        empty_layout.addStretch(1)
+        self._button_search = QPushButton(tr("Buscar emisoras"))
+        self._button_search.setObjectName("radioSearchButton")
+        self._button_search.setMinimumHeight(38)
+        self._button_search.setToolTip(tr("Busca emisoras online de tu zona"))
+        self._button_search.clicked.connect(self.search_requested.emit)
+        empty_layout.addWidget(self._button_search, alignment=Qt.AlignmentFlag.AlignCenter)
+        self._empty_hint = QLabel(tr("Aún no tienes emisoras. Busca las de tu zona."))
+        self._empty_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._empty_hint.setWordWrap(True)
+        empty_layout.addWidget(self._empty_hint)
+        empty_layout.addStretch(1)
+        outer.addWidget(self._empty, stretch=1)
 
         self.refresh()
 
     def refresh(self) -> None:
+        has_any = bool(self._radio.stations())
+        self._normal.setVisible(has_any)
+        self._empty.setVisible(not has_any)
+        if not has_any:
+            return
         stations = self._radio.search(self._search.text())
         self._table.blockSignals(True)
         self._table.setRowCount(0)
@@ -173,6 +203,15 @@ class RadioPanel(QWidget):
 
     def show_message(self, text: str) -> None:
         self._status.setText(text)
+
+    def set_searching(self, searching: bool) -> None:
+        self._button_search.setEnabled(not searching)
+        if searching:
+            self._button_search.setText(tr("Buscando emisoras…"))
+            self._empty_hint.setText(tr("Usando tu ubicación para buscarlas…"))
+        else:
+            self._button_search.setText(tr("Buscar emisoras"))
+            self._empty_hint.setText(tr("Aún no tienes emisoras. Busca las de tu zona."))
 
     def _emit_selected(self) -> None:
         station = self.selected_station()
