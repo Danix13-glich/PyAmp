@@ -50,9 +50,10 @@ _EN: dict[str, str] = {
     "Aleatorio": "Shuffle",
     "Aleatorio: siguiente pista al azar": "Shuffle: play the next track at random",
     "Repetir": "Repeat",
-    "Repetir: al terminar la playlist se vuelve a la primera": (
-        "Repeat: when the playlist ends, start over from the first track"
+    "Repetir: repite la pista actual una vez y se desactiva": (
+        "Repeat: play the current track once more, then turn off"
     ),
+    "Repetición desactivada (repetida una vez)": "Repeat off (played once more)",
     "Marcar la pista actual como favorita": "Mark the current track as a favorite",
     "Favorito": "Favorite",
     "Silenciar": "Mute",
@@ -204,6 +205,7 @@ _EN: dict[str, str] = {
     "Buscar emisora, género o país...": "Search station, genre or country...",
     "{shown} de {total} emisoras": "{shown} of {total} stations",
     "Selecciona una emisora": "Select a station",
+    "No hay emisoras: busca o añade una": "No stations: search or add one",
     "Esa emisora ya está en la lista.": "That station is already in the list.",
     "Solo se pueden editar tus emisoras": "Only your stations can be edited",
     "Solo se pueden borrar tus emisoras": "Only your stations can be deleted",
@@ -257,6 +259,9 @@ _EN: dict[str, str] = {
     "Tamaño de ventana: {width}×{height}": "Window size: {width}×{height}",
     "➕ Crear tema nuevo…": "➕ Create new theme…",
     "Crear tema nuevo": "Create new theme",
+    "Nombre del tema:": "Theme name:",
+    "Mi tema": "My theme",
+    "Nombre para el nuevo tema": "Name for the new theme",
     "Fondo:": "Background:",
     "Texto:": "Text:",
     "Acento:": "Accent:",

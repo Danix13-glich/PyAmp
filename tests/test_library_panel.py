@@ -562,8 +562,15 @@ def test_lyrics_window_hides_placeholder_when_lrc_exists(
 
 
 # ------------------------------------------------------- temas (0.1.6)
-def test_themes_load_three_including_current() -> None:
+def test_themes_load_three_including_current(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from app.themes import DEFAULT_THEME_ID, get_theme, load_themes
+    from app.themes import manager as theme_manager
+
+    # Aislar los temas del usuario real: el test solo cuenta los incluidos.
+    monkeypatch.setattr(theme_manager, "USER_THEMES_DIR", tmp_path / "themes")
+    monkeypatch.setattr(theme_manager, "_cache", None)
 
     themes = load_themes()
     assert len(themes) == 3
@@ -587,8 +594,16 @@ def test_get_theme_unknown_id_falls_back_to_default() -> None:
 
 
 # ------------------------------------------- diálogo Ajustes en pestañas
-def test_settings_dialog_has_tabs_and_appearance(qapp: QApplication) -> None:
+def test_settings_dialog_has_tabs_and_appearance(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     from PySide6.QtWidgets import QTabWidget
+
+    from app.themes import manager as theme_manager
+
+    # Sin temas de usuario: la combo = 3 temas incluidos + «Crear tema nuevo…».
+    monkeypatch.setattr(theme_manager, "USER_THEMES_DIR", tmp_path / "themes")
+    monkeypatch.setattr(theme_manager, "_cache", None)
 
     dialog = SettingsDialog(
         get_settings(),

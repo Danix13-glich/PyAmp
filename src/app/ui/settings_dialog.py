@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QKeySequenceEdit,
     QLabel,
+    QLineEdit,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -188,6 +189,10 @@ class SettingsDialog(QDialog):
         }
         self._create_group = QGroupBox(tr("Crear tema nuevo"))
         create_form = QFormLayout(self._create_group)
+        self._edit_theme_name = QLineEdit()
+        self._edit_theme_name.setPlaceholderText(tr("Mi tema"))
+        self._edit_theme_name.setToolTip(tr("Nombre para el nuevo tema"))
+        create_form.addRow(tr("Nombre del tema:"), self._edit_theme_name)
         self._btn_color_bg = self._make_color_button("bg", "Fondo")
         self._btn_color_text = self._make_color_button("text", "Texto")
         self._btn_color_accent = self._make_color_button("accent", "Color de acento")
@@ -319,6 +324,7 @@ class SettingsDialog(QDialog):
                 self._color_values["bg"],
                 self._color_values["text"],
                 self._color_values["accent"],
+                name=self._edit_theme_name.text(),
             )
         except Exception:  # noqa: BLE001 - un tema no debe impedir guardar
             return DEFAULT_THEME_ID

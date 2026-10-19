@@ -243,12 +243,15 @@ class SpectrumWidget(QWidget):
         height = rect.height()
         mid = height // 2  # línea central: cada barra crece hacia arriba y abajo
         max_half = max(1, (height - 4) // 2)  # altura máxima = alto completo
-        bar_width = max(2, (width - gap * (BAR_COUNT + 1)) // BAR_COUNT)
+        # Reparto que ocupa todo el ancho: sin franja vacía en el extremo derecho.
+        bar_width = max(1, (width - gap * (BAR_COUNT - 1)) // BAR_COUNT)
+        used = bar_width * BAR_COUNT + gap * (BAR_COUNT - 1)
+        offset = max(0, (width - used) // 2)
         for index, level in enumerate(np.asarray(self._bars)):
             half = int(float(level) * max_half)
             if half <= 0:
                 continue
-            x = gap + index * (bar_width + gap)
+            x = offset + index * (bar_width + gap)
             # Tono del tema, más brillante cuanto más fuerte es el nivel.
             color = QColor.fromHsv(self._hue, 190, 150 + int(105 * float(level)))
             painter.fillRect(x, mid - half, bar_width, half * 2, color)

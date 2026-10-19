@@ -160,6 +160,17 @@ class RadioPanel(QWidget):
         station = item.data(ROLE_STATION)
         return station if isinstance(station, RadioStation) else None
 
+    def select_relative(self, delta: int) -> None:
+        # Anterior/siguiente en la vista de radio: cambia de emisora y la pone.
+        count = self._table.rowCount()
+        if count == 0:
+            self._status.setText(tr("No hay emisoras: busca o añade una"))
+            return
+        row = self._table.currentRow()
+        row = (0 if delta > 0 else count - 1) if row < 0 else (row + delta) % count
+        self._table.setCurrentCell(row, 0)
+        self._play_selected()
+
     def show_message(self, text: str) -> None:
         self._status.setText(text)
 

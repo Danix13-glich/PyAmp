@@ -53,6 +53,8 @@ class Player(QObject):
     duration_changed = Signal(int)
     volume_changed = Signal(int)
     error_occurred = Signal(str)
+    #: El repetir se consumió (la pista actual se repitió una vez y se apagó).
+    repeat_consumed = Signal()
 
     # Señales internas: marshaling desde el hilo de VLC al hilo de UI.
     _backend_finished = Signal()
@@ -388,6 +390,15 @@ class Player(QObject):
         QTimer.singleShot(AUTO_ADVANCE_DELAY_MS, self._auto_advance)
 
     def _auto_advance(self) -> None:
+        # Repetir = repetir la pista actual una sola vez y desactivarse.
+        if self._repeat:
+            current = self._playlist.current_index
+            self._repeat = False
+            self._settings.repeat = False
+            self.repeat_consumed.emit()
+            if current >= 0:
+                self.play_index(current)
+                return
         index = self._advance_index()
         if index is None:
             logger.info("Fin de la playlist")
@@ -401,13 +412,23 @@ class Player(QObject):
             return None
         current = self._playlist.current_index
         if self._shuffle and size > 1:
-            # Cualquier índice salvo el actual (sin repetir la misma).
-            choice = random.randrange(size - 1)
-            return choice if choice < current else choice + 1
+            return self._weighted_shuffle_index(current)
         candidate = self._playlist.next_index()
         if candidate is not None:
             return candidate
-        return 0 if self._repeat else None
+        return None
+
+    #: Peso extra de las pistas favoritas al barajar.
+    FAVORITE_SHUFFLE_WEIGHT = 3.0
+
+    def _weighted_shuffle_index(self, current: int) -> int:
+        # Cualquier índice salvo el actual; las favoritas tienen más opciones.
+        candidates = [index for index in range(len(self._playlist)) if index != current]
+        weights = [
+            self.FAVORITE_SHUFFLE_WEIGHT if self._playlist[index].is_favorite else 1.0
+            for index in candidates
+        ]
+        return random.choices(candidates, weights=weights, k=1)[0]
 
     def _handle_backend_error(self, message: str) -> None:
         logger.error("Backend: %s", message)

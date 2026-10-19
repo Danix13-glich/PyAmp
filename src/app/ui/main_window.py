@@ -14,6 +14,7 @@ from PySide6.QtGui import (
     QFontDatabase,
     QIcon,
     QKeySequence,
+    QMouseEvent,
     QPainter,
 )
 from PySide6.QtWidgets import (
@@ -101,6 +102,23 @@ class _FolderLoader(QThread):
         self.paths_loaded.emit(paths)
 
 
+class ClickSlider(QSlider):
+    """Deslizador horizontal que salta a la posición pulsada (no a un paso)."""
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and self.orientation() == (
+            Qt.Orientation.Horizontal
+        ):
+            value = QStyle.sliderValueFromPosition(
+                self.minimum(), self.maximum(), int(event.position().x()), max(1, self.width())
+            )
+            self.setValue(value)
+            self.sliderMoved.emit(value)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 class MainWindow(QMainWindow):
 
     #: Peticiones MPRIS llegadas del bus (hilo ajeno → hilo de UI).
@@ -134,6 +152,8 @@ class MainWindow(QMainWindow):
         self._mpris: Any = None  # MprisAdapter (solo Linux; ver _init_mpris)
         self._lyrics_window: LyricsWindow | None = None
         self._radio_station: RadioStation | None = None
+        #: True mientras la vista activa es la de radio (oculta transporte local).
+        self._radio_view = False
         self._shortcut_actions: dict[str, QAction] = {}
         self._theme_actions: dict[str, QAction] = {}
         #: Icono nativo de cada botón de transporte (para re-teñirlo por tema).
@@ -208,7 +228,7 @@ class MainWindow(QMainWindow):
         header_v.addLayout(bottom_row)
 
         # --- barra de posición dentro del recuadro (debajo del tiempo) ---
-        self._slider_seek = QSlider(Qt.Orientation.Horizontal)
+        self._slider_seek = ClickSlider(Qt.Orientation.Horizontal)
         self._slider_seek.setRange(0, 0)
         self._slider_seek.setToolTip(tr("Posición de reproducción"))
         self._slider_seek.setAccessibleName(tr("Posición"))
@@ -221,7 +241,7 @@ class MainWindow(QMainWindow):
         self._button_prev = self._make_button(
             QStyle.StandardPixmap.SP_MediaSkipBackward,
             f"{tr('Anterior')} ({SHORTCUT_DEFAULTS['prev']})",
-            self._player.prev,
+            self._on_prev,
         )
         self._button_play = self._make_button(
             QStyle.StandardPixmap.SP_MediaPlay,
@@ -231,7 +251,7 @@ class MainWindow(QMainWindow):
         self._button_next = self._make_button(
             QStyle.StandardPixmap.SP_MediaSkipForward,
             f"{tr('Siguiente')} ({SHORTCUT_DEFAULTS['next']})",
-            self._player.next,
+            self._on_next,
         )
         for button in (
             self._button_prev,
@@ -252,9 +272,7 @@ class MainWindow(QMainWindow):
         self._button_repeat = QToolButton()
         self._button_repeat.setText("🔁")
         self._button_repeat.setCheckable(True)
-        self._button_repeat.setToolTip(
-            tr("Repetir: al terminar la playlist se vuelve a la primera")
-        )
+        self._button_repeat.setToolTip(tr("Repetir: repite la pista actual una vez y se desactiva"))
         self._button_repeat.setAccessibleName(tr("Repetir"))
         self._button_repeat.setChecked(self._settings.repeat)
         self._button_repeat.toggled.connect(self._on_repeat_toggled)
@@ -459,7 +477,7 @@ class MainWindow(QMainWindow):
             (
                 QKeySequence(Qt.Key.Key_MediaPrevious),
                 tr("Pista anterior (multimedia)"),
-                self._player.prev,
+                self._on_prev,
             ),
             (
                 QKeySequence(Qt.Key.Key_MediaTogglePlayPause),
@@ -479,7 +497,7 @@ class MainWindow(QMainWindow):
             (
                 QKeySequence(Qt.Key.Key_MediaNext),
                 tr("Pista siguiente (multimedia)"),
-                self._player.next,
+                self._on_next,
             ),
         )
         for sequence, name, slot in media_shortcuts:
@@ -490,9 +508,9 @@ class MainWindow(QMainWindow):
             self.addAction(action)  # la ventana mantiene viva la acción
 
         for shortcut_id, name, slot in (
-            ("prev", tr("Pista anterior"), self._player.prev),
+            ("prev", tr("Pista anterior"), self._on_prev),
             ("play_pause", tr("Reproducir/pausar"), self._on_play_clicked),
-            ("next", tr("Pista siguiente"), self._player.next),
+            ("next", tr("Pista siguiente"), self._on_next),
         ):
             action = QAction(name, self)
             action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
@@ -539,6 +557,7 @@ class MainWindow(QMainWindow):
         player.duration_changed.connect(self._on_duration_changed)
         player.volume_changed.connect(self._on_volume_changed)
         player.error_occurred.connect(self._on_error)
+        player.repeat_consumed.connect(self._on_repeat_consumed)
         # La biblioteca acumula estadísticas en cada cambio de pista real.
         player.track_changed.connect(self._record_library_play)
 
@@ -918,6 +937,19 @@ class MainWindow(QMainWindow):
     def _on_play_clicked(self) -> None:
         self._player.toggle_pause()
 
+    def _on_prev(self) -> None:
+        # En la vista de radio, anterior/siguiente cambian de emisora.
+        if self._radio_view:
+            self._radio_panel.select_relative(-1)
+        else:
+            self._player.prev()
+
+    def _on_next(self) -> None:
+        if self._radio_view:
+            self._radio_panel.select_relative(1)
+        else:
+            self._player.next()
+
     def _set_view(self, mode: str, *, save: bool = True) -> None:
         if mode == VIEW_FAVORITOS:
             self._stacked.setCurrentIndex(1)
@@ -931,8 +963,17 @@ class MainWindow(QMainWindow):
             self._stacked.setCurrentIndex(0)
             action = self._action_view_canciones
         action.setChecked(True)
+        self._update_radio_controls(mode == VIEW_RADIO)
         if save:
             self._settings.view_mode = mode
+
+    def _update_radio_controls(self, radio: bool) -> None:
+        # La radio no usa la barra de posición, el aleatorio ni el repetir.
+        self._radio_view = radio
+        self._slider_seek.setVisible(not radio)
+        self._button_shuffle.setVisible(not radio)
+        self._button_repeat.setVisible(not radio)
+        self._update_time_label(self._slider_seek.value())
 
     def _on_radio_play(self, station: object) -> None:
         if not isinstance(station, RadioStation):
@@ -1263,7 +1304,9 @@ class MainWindow(QMainWindow):
             app.setStyleSheet(theme.qss)  # vacío si es «native» (estilo del sistema)
         self._header_panel.setStyleSheet(theme.header_stylesheet())
         self._spectrum.set_hue(theme.spectrum_hue)
-        self._spectrum.set_spectrum_colors(theme.color("spectrum_bg"), theme.color("spectrum_line"))
+        # El fondo del espectro iguala el de la cabecera (como en Verde terminal):
+        # así Arena clara y los temas personalizados no muestran costura.
+        self._spectrum.set_spectrum_colors(theme.color("header_bg"), theme.color("spectrum_line"))
         self._refresh_icon_buttons()
         action = self._theme_actions.get(theme.id)
         if action is not None:
@@ -1285,6 +1328,15 @@ class MainWindow(QMainWindow):
         self._player.repeat = checked
         self.statusBar().showMessage(
             tr("Repetición activada") if checked else tr("Repetición desactivada"), ERROR_TIMEOUT_MS
+        )
+
+    def _on_repeat_consumed(self) -> None:
+        # El reproductor repitió la pista una vez y desactivó el repetir.
+        self._button_repeat.blockSignals(True)
+        self._button_repeat.setChecked(False)
+        self._button_repeat.blockSignals(False)
+        self.statusBar().showMessage(
+            tr("Repetición desactivada (repetida una vez)"), ERROR_TIMEOUT_MS
         )
 
     # ------------------------------------------------ 0.1.6: editor de letras
@@ -1378,6 +1430,10 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------------- helpers
     def _update_time_label(self, position_ms: int) -> None:
+        if self._radio_view:
+            # Un flujo de radio no tiene duración: símbolo de infinito.
+            self._label_time.setText("∞ / ∞")
+            return
         self._label_time.setText(f"{format_time(position_ms)} / {format_time(self._duration_ms)}")
 
     def _update_mute_icon(self, muted: bool) -> None:

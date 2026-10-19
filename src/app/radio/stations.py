@@ -45,7 +45,11 @@ BUILTIN_STATIONS: tuple[RadioStation, ...] = (
         True,
     ),
     RadioStation(
-        "LOS40", "https://flucast-m06-02.flumotion.com/copesedes/los40.mp3", "Pop", "España", True
+        "LOS40",
+        "https://playerservices.streamtheworld.com/api/livestream-redirect/Los40.mp3",
+        "Pop",
+        "España",
+        True,
     ),
     RadioStation(
         "RNE Radio 3",

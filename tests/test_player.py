@@ -161,14 +161,39 @@ def test_shuffle_picks_random_other_index(qapp: QApplication, tmp_path, monkeypa
     player, _backend = _fake_player(settings=settings)
     try:
         player.shuffle = True
-        monkeypatch.setattr("app.core.player.random.randrange", lambda _n: 2)
+        monkeypatch.setattr("app.core.player.random.choices", lambda population, weights, k: [3])
         assert player.next() is True
-        assert player.playlist.current_index == 3  # randrange(4)=2 → 2+1 (salta la actual 0)
+        assert player.playlist.current_index == 3  # salta la actual (0)
 
-        # Con la actual en 3 y randrange devolviendo 3: se desplaza a 4.
-        monkeypatch.setattr("app.core.player.random.randrange", lambda _n: 3)
+        monkeypatch.setattr("app.core.player.random.choices", lambda population, weights, k: [4])
         assert player.next() is True
         assert player.playlist.current_index == 4
+    finally:
+        player.shutdown()
+
+
+def test_shuffle_favors_favorites(qapp: QApplication, tmp_path, monkeypatch) -> None:
+    settings = _isolated_settings(tmp_path)
+    player, _backend = _fake_player(settings=settings)
+    try:
+        player.shuffle = True
+        player.playlist[2].is_favorite = True
+        captured: dict[str, list[float] | list[int]] = {}
+
+        def fake_choices(population, weights, k):
+            captured["population"] = list(population)
+            captured["weights"] = list(weights)
+            return [population[0]]
+
+        monkeypatch.setattr("app.core.player.random.choices", fake_choices)
+        player.playlist.set_current(0)
+        player.next()
+
+        population = captured["population"]
+        weights = captured["weights"]
+        assert 0 not in population  # nunca la actual
+        assert weights[population.index(2)] == player.FAVORITE_SHUFFLE_WEIGHT
+        assert weights[population.index(1)] == 1.0
     finally:
         player.shutdown()
 
@@ -187,14 +212,21 @@ def test_shuffle_off_uses_sequential_order(qapp: QApplication, tmp_path) -> None
         player.shutdown()
 
 
-def test_repeat_wraps_to_first_at_end(qapp: QApplication, tmp_path) -> None:
+def test_repeat_replays_current_once_then_turns_off(qapp: QApplication, tmp_path) -> None:
     settings = _isolated_settings(tmp_path)
     player, _backend = _fake_player(track_count=3, settings=settings)
     try:
         player.repeat = True
         player.playlist.set_current(2)
-        assert player.next() is True
-        assert player.playlist.current_index == 0
+        emitted: list[bool] = []
+        player.repeat_consumed.connect(lambda: emitted.append(True))
+
+        player._auto_advance()  # noqa: SLF001 - fin de pista simulado
+
+        assert player.playlist.current_index == 2  # se repite la misma pista
+        assert player.repeat is False
+        assert settings.repeat is False
+        assert emitted == [True]
     finally:
         player.shutdown()
 
