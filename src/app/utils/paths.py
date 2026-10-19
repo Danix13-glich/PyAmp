@@ -1,15 +1,3 @@
-"""Rutas estándar de PyAmp por sistema operativo.
-
-Cumple los RNF del proyecto:
-
-* Linux (Fedora): config en ``~/.config/PyAmp/``, datos en
-  ``~/.local/share/PyAmp/``, logs en ``~/.local/share/PyAmp/logs/``.
-* Windows: ``%APPDATA%\\PyAmp`` (config y datos).
-* macOS: ``~/Library/Application Support/PyAmp``.
-
-Se respeta ``XDG_CONFIG_HOME`` / ``XDG_DATA_HOME`` en Linux.
-"""
-
 from __future__ import annotations
 
 import os
@@ -20,7 +8,6 @@ APP_NAME = "PyAmp"
 
 
 def _base_config_dir() -> Path:
-    """Directorio base de configuración según el SO."""
     system = platform.system()
     if system == "Windows":
         appdata = os.environ.get("APPDATA")
@@ -32,7 +19,6 @@ def _base_config_dir() -> Path:
 
 
 def _base_data_dir() -> Path:
-    """Directorio base de datos de la aplicación según el SO."""
     system = platform.system()
     if system == "Windows":
         local = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
@@ -53,9 +39,5 @@ DATABASE_FILE: Path = DATA_DIR / "library.db"
 
 
 def ensure_app_dirs() -> None:
-    """Crea (si no existen) todos los directorios que usa la aplicación.
-
-    Idempotente: llamarlo tantas veces como se quiera es seguro.
-    """
     for directory in (CONFIG_DIR, DATA_DIR, LOGS_DIR, COVERS_DIR, PLAYLISTS_DIR, LYRICS_DIR):
         directory.mkdir(parents=True, exist_ok=True)

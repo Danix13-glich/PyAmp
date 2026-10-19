@@ -1,10 +1,10 @@
 [project]
 name = "pyamp"
-version = "0.1.8"
-description = "Reproductor de música local y radios online con estética Winamp moderna, escrito en Python con PySide6 y VLC."
-readme = "README_EN.md"
+version = "0.1.9"
+description = "App creada en Python para escuchar musica en varios formatos y facil de usar"
+readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "Propietaria / pendiente de decidir (ver README)" }
+license = { file = "LICENSE" }
 authors = [{ name = "Danix13-glich" }]
 keywords = ["music", "player", "winamp", "vlc", "pyside6", "qt", "radio", "equalizer"]
 classifiers = [
@@ -18,6 +18,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Multimedia :: Sound/Audio :: Players",
+    "License :: OSI Approved :: MIT License",
 ]
 
 [project.urls]

@@ -1,20 +1,3 @@
-"""Visualizador de espectro con barras reales (numpy + QPainter, Fase 4).
-
-Toma el audio **real** de la salida del sistema en Linux: lanza ``parec``
-sobre el monitor del sink por defecto (PulseAudio/PipeWire — presente en
-Fedora) y calcula la FFT con numpy en un hilo lector. En plataformas sin
-``parec``/``pactl`` el widget queda en reposo indicándolo: nunca inventa
-movimiento.
-
-Reglas: la UI nunca bloquea (lectura de audio en hilo propio, el
-repintado es un QTimer de ~30 fps en el hilo de UI) y al cerrar la
-ventana ``shutdown()`` termina el proceso de captura.
-
-Privacidad: ``parec`` solo corre **mientras la música suena** — al pausar,
-detener u ocultar el espectro el proceso se termina, así el escritorio
-(KDE incluido) no muestra el indicador de «app usando el micrófono».
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -30,7 +13,7 @@ from PySide6.QtWidgets import QWidget
 
 logger = logging.getLogger(__name__)
 
-#: Número de barras dibujadas (ajuste Fase 6: 12 bandas iguales).
+#: Número de barras dibujadas (12 bandas iguales).
 BAR_COUNT = 12
 
 #: Parámetros de la captura (float32 mono).
@@ -46,7 +29,7 @@ DECAY = 0.86
 FREQ_MIN = 40.0
 FREQ_MAX = 16000.0
 
-#: Altura del widget: el doble que en Fase 5 (las barras llegan a ~60 px
+#: Altura del widget (las barras llegan a ~60 px
 #: de alto total, arriba y abajo de la línea central).
 SPECTRUM_HEIGHT = 64
 
@@ -66,7 +49,6 @@ _NO_SIGNAL_TEXT = "Espectro no disponible (se requiere parec/pactl)"
 
 
 class SpectrumWidget(QWidget):
-    """Barras de espectro alimentadas por la captura real del sink."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -99,11 +81,6 @@ class SpectrumWidget(QWidget):
 
     # ------------------------------------------------------------- control
     def set_playing(self, playing: bool) -> None:
-        """Activa o frena la captura según el estado de reproducción.
-
-        Al dejar de sonar se termina ``parec``: el escritorio no debe
-        mostrar el indicador de grabación con la app en pausa o parada.
-        """
         if playing == self._playing:
             return
         self._playing = playing
@@ -117,16 +94,10 @@ class SpectrumWidget(QWidget):
             self.update()
 
     def set_hue(self, hue: int) -> None:
-        """Tono HSV de las barras (tema visual)."""
         self._hue = max(0, min(359, int(hue)))
         self.update()
 
     def set_spectrum_colors(self, background: str, line: str) -> None:
-        """Fondo y línea central del espectro según el tema activo.
-
-        Sin esto, el fondo quedaba siempre en el mismo color oscuro y
-        desentonaba con temas claros (arena) o de otro color (verde).
-        """
         bg = QColor(background)
         if bg.isValid():
             self._bg_color = bg
@@ -137,15 +108,9 @@ class SpectrumWidget(QWidget):
 
     @property
     def available(self) -> bool | None:
-        """True si hay captura; False si no; None si aún no se probó."""
         return self._available
 
     def stop_capture(self) -> None:
-        """Termina el proceso de captura sin marcarla como no disponible.
-
-        Se puede volver a llamar a ``set_playing(True)`` después: el
-        proceso se relanza bajo demanda.
-        """
         self._stop_flag.set()
         process = self._process
         if process is not None and process.poll() is None:
@@ -159,13 +124,11 @@ class SpectrumWidget(QWidget):
         self._pending = None
 
     def shutdown(self) -> None:
-        """Termina la captura (idempotente; se llama en closeEvent)."""
         self._timer.stop()
         self.stop_capture()
 
     # ------------------------------------------------------------- captura
     def _start_capture(self) -> None:
-        """Lanza ``parec`` sobre el monitor del sink por defecto (una vez)."""
         if self._process is not None or self._available is False:
             return
         try:
@@ -199,7 +162,6 @@ class SpectrumWidget(QWidget):
 
     @staticmethod
     def _default_monitor() -> str | None:
-        """Monitor de audio del sink por defecto (None si no hay entorno)."""
         pactl = shutil.which("pactl")
         if pactl is None or shutil.which("parec") is None:
             return None
@@ -218,7 +180,6 @@ class SpectrumWidget(QWidget):
         return f"{sink}.monitor" if sink else None
 
     def _read_loop(self) -> None:
-        """Hilo lector: guarda chunks fijos de float32 en ``_pending``."""
         process = self._process
         if process is None or process.stdout is None:
             return
@@ -251,7 +212,6 @@ class SpectrumWidget(QWidget):
         self.update()
 
     def _compute(self, chunk: np.ndarray) -> np.ndarray | None:
-        """FFT → 40 niveles 0..1 en escala logarítmica de frecuencia."""
         if chunk.size < 512:
             return None
         window = np.hanning(chunk.size)

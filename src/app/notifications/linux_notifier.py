@@ -1,20 +1,3 @@
-"""Notificador nativo para Linux — D-Bus ``org.freedesktop.Notifications``.
-
-Cumple los requisitos de la Fase 1:
-
-* **No bloquea el hilo de UI**: cada envío se despacha en un event loop
-  asyncio propio que vive en un hilo daemon (fire-and-forget; el resultado
-  solo se registra en el log).
-* **Integración nativa** (KDE/GNOME): la notificación entra en el centro de
-  notificaciones del escritorio (bandeja + historial) — nunca es una ventana
-  flotante propia.
-* **Respeta "No molestar"**: urgencia normal (no se marca crítico, que
-  saltaría el DND); el filtrado lo hace el servidor de notificaciones.
-* **Silenciosa**: hint ``suppress-sound``.
-* **No roba foco**: sin acciones ni escenarios que roben el foco.
-* **Carátula**: hint ``image-data`` (spec freedesktop) cuando existe.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -39,15 +22,6 @@ NOTIFY_SIGNATURE = "susssasa{sv}i"
 
 
 def _image_data(image_path: str) -> tuple[int, int, int, bool, int, int, bytes] | None:
-    """Convierte una imagen al formato del hint ``image-data`` (RGBA8888).
-
-    Args:
-        image_path: Ruta de la carátula.
-
-    Returns:
-        Tupla (width, height, rowstride, has_alpha, bits, channels, data)
-        o None si la imagen no se puede cargar.
-    """
     try:
         from PySide6.QtGui import QImage
 
@@ -70,11 +44,6 @@ def _image_data(image_path: str) -> tuple[int, int, int, bool, int, int, bytes] 
 
 
 class LinuxNotifier:
-    """Backend D-Bus de notificaciones para Linux.
-
-    Usa ``dbus-next`` (asíncrono) sobre un hilo daemon propio; se conecta de
-    forma persistente al bus de sesión y se reconecta si el bus falla.
-    """
 
     def __init__(self) -> None:
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -91,15 +60,6 @@ class LinuxNotifier:
         timeout_ms: int = 5000,
         image_path: str | None = None,
     ) -> None:
-        """Envía una notificación sin bloquear (fire-and-forget).
-
-        Args:
-            app_name: Nombre de la app ("PyAmp").
-            title: Título (summary).
-            body: Cuerpo (artista).
-            timeout_ms: Duración en milisegundos (la respeta el servidor).
-            image_path: Ruta de la carátula o None.
-        """
         loop = self._ensure_loop()
         future = asyncio.run_coroutine_threadsafe(
             self._notify_async(app_name, title, body, timeout_ms, image_path), loop
@@ -107,7 +67,6 @@ class LinuxNotifier:
         future.add_done_callback(self._log_result)
 
     def close_all(self) -> None:
-        """Cierra todas las notificaciones pendientes (mejor esfuerzo)."""
         if self._loop is None:
             return
         # Si el loop ya se cerró al salir de la app, RuntimeError: se ignora.
@@ -116,7 +75,6 @@ class LinuxNotifier:
 
     # ------------------------------------------------------------ internas
     def _ensure_loop(self) -> asyncio.AbstractEventLoop:
-        """Arranca (una sola vez) el event loop en un hilo daemon."""
         if self._loop is None:
             self._loop = asyncio.new_event_loop()
             self._thread = threading.Thread(
@@ -126,7 +84,6 @@ class LinuxNotifier:
         return self._loop
 
     async def _get_bus(self) -> Any:
-        """Devuelve (y mantiene) la conexión al bus de sesión."""
         if self._bus is None:
             from dbus_next.aio import MessageBus
 
@@ -142,7 +99,6 @@ class LinuxNotifier:
         timeout_ms: int,
         image_path: str | None,
     ) -> None:
-        """Llama a ``Notify`` en el bus (ejecuta en el hilo del loop)."""
         hints: dict[str, Variant] = {
             # Silenciosa: nunca reproduce sonido propio.
             "suppress-sound": Variant("b", True),
@@ -180,7 +136,6 @@ class LinuxNotifier:
             self._ids.append(int(reply.body[0]))
 
     async def _close_all_async(self) -> None:
-        """Cierra las notificaciones registradas (en el hilo del loop)."""
         try:
             bus = await self._get_bus()
             while self._ids:
@@ -200,7 +155,6 @@ class LinuxNotifier:
 
     @staticmethod
     def _log_result(future: concurrent.futures.Future[None]) -> None:
-        """Registra el resultado del envío (sin excepciones hacia fuera)."""
         try:
             future.result()
         except Exception as exc:  # noqa: BLE001

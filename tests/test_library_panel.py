@@ -1,12 +1,3 @@
-"""Tests de la UI de biblioteca (Fase 3) y de la Fase 4.
-
-Fase 3: panel-árbol y carátulas. Fase 4: vista Canciones (modelo+proxy),
-diálogo de Ajustes y widget de espectro. Todos usan ``QApplication``
-offscreen (CI define ``QT_QPA_PLATFORM=offscreen``); el árbol y la tabla
-se rellenan con un SQLite temporal construido con la misma fachada que
-usa la app.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -47,7 +38,6 @@ from app.ui.spectrum_widget import BAR_COUNT, CHUNK_FRAMES, SpectrumWidget
 
 @pytest.fixture(scope="module")
 def qapp() -> QApplication:
-    """QApplication única offscreen para los widgets."""
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
@@ -56,7 +46,6 @@ def qapp() -> QApplication:
 
 @pytest.fixture()
 def db(tmp_path: Path) -> LibraryDatabase:
-    """Biblioteca: «Alfa» con álbum «Disco» (2 pistas) + 1 pista huérfana."""
     database = LibraryDatabase(tmp_path / "library.db")
     database.upsert_track(
         Track(
@@ -116,7 +105,6 @@ def test_refresh_populates_artists_and_bucket(panel: LibraryPanel) -> None:
 
 
 def test_duet_artist_splits_into_individual_artists(qapp: QApplication, tmp_path: Path) -> None:
-    """«A, B» no es un nodo: el tema aparece bajo «A» y bajo «B»."""
     database = LibraryDatabase(tmp_path / "dueto.db")
     try:
         database.upsert_track(
@@ -306,7 +294,7 @@ def test_replace_playlist_swaps_context(qapp: QApplication) -> None:
         player.shutdown()
 
 
-# ------------------------------------------------- vista Canciones (Fase 4)
+# ---------------------------------------------------- vista Canciones
 @pytest.fixture()
 def songs(qapp: QApplication, db: LibraryDatabase) -> SongsTable:
     widget = SongsTable(db)
@@ -367,7 +355,7 @@ def test_songs_star_column_emits_favorite_toggled(songs: SongsTable) -> None:
     assert len(received) == 1
 
 
-# ------------------------------------------------- diálogo Ajustes (Fase 4)
+# ---------------------------------------------------- diálogo Ajustes
 def test_settings_dialog_reads_settings_and_emits_apply(qapp: QApplication) -> None:
     settings = get_settings()
     original_enabled = settings.notifications_enabled
@@ -401,7 +389,6 @@ def test_settings_dialog_reads_settings_and_emits_apply(qapp: QApplication) -> N
 
 # ------------------------------------------- atajos personalizables (ajustes)
 def test_settings_shortcuts_roundtrip_isolated(tmp_path: Path) -> None:
-    """Settings.shortcuts: JSON en QSettings aislado (nunca el real del usuario)."""
     settings = Settings(tmp_path / "PyAmp-test.conf")
 
     assert settings.shortcuts == {}  # sin personalización: vacío
@@ -414,7 +401,6 @@ def test_settings_shortcuts_roundtrip_isolated(tmp_path: Path) -> None:
 
 
 def test_settings_shortcuts_ignores_corrupt_json(tmp_path: Path) -> None:
-    """JSON corrupto en la clave -> {} (nunca excepción al arrancar)."""
     settings = Settings(tmp_path / "PyAmp-test.conf")
     settings.set_value("shortcuts/custom", "{no es json")
 
@@ -422,7 +408,6 @@ def test_settings_shortcuts_ignores_corrupt_json(tmp_path: Path) -> None:
 
 
 def test_settings_dialog_shortcut_edits_match_catalog(qapp: QApplication, tmp_path: Path) -> None:
-    """Una fila de QKeySequenceEdit por cada ID del catálogo, con el default."""
     dialog = SettingsDialog(
         Settings(tmp_path / "PyAmp-test.conf"),
         notifier_backend="test-backend",
@@ -435,7 +420,6 @@ def test_settings_dialog_shortcut_edits_match_catalog(qapp: QApplication, tmp_pa
 
 
 def test_settings_dialog_collects_only_custom_shortcuts(qapp: QApplication, tmp_path: Path) -> None:
-    """apply_shortcuts emite solo las secuencias rellenadas (no vacías)."""
     dialog = SettingsDialog(
         Settings(tmp_path / "PyAmp-test.conf"),
         notifier_backend="test-backend",
@@ -451,7 +435,7 @@ def test_settings_dialog_collects_only_custom_shortcuts(qapp: QApplication, tmp_
     assert collected == [{"next": "Ctrl+9"}]
 
 
-# ---------------------------------------------- espectrograma (Fase 4)
+# ------------------------------------------------ espectrograma
 def test_spectrum_widget_paints_and_computes_levels(qapp: QApplication) -> None:
     widget = SpectrumWidget()
     widget.resize(320, 56)
@@ -483,14 +467,13 @@ def test_spectrum_widget_start_stop_and_shutdown_are_safe(qapp: QApplication) ->
 
 
 def test_spectrum_widget_is_compact_and_blue_bars(qapp: QApplication) -> None:
-    """Ajuste Fase 5: 12 barras simétricas (línea central), 64 px de alto y 120 px de ancho fijo."""
     widget = SpectrumWidget()
     assert BAR_COUNT == 12
-    assert widget.minimumHeight() == 64  # el doble que en Fase 5 (32 px)
+    assert widget.minimumHeight() == 64
     assert widget.width() == 120  # ancho fijo (no colapsa en filas horizontales)
 
 
-# ------------------------------------------------------- letras (Fase 5)
+# ------------------------------------------------------------- letras
 def test_parse_lrc_extracts_and_sorts_entries() -> None:
     text = "\n".join(
         [
@@ -580,7 +563,6 @@ def test_lyrics_window_hides_placeholder_when_lrc_exists(
 
 # ------------------------------------------------------- temas (0.1.6)
 def test_themes_load_three_including_current() -> None:
-    """Hay 3 temas (incluido el actual Winamp oscuro) con QSS correcto."""
     from app.themes import DEFAULT_THEME_ID, get_theme, load_themes
 
     themes = load_themes()
@@ -606,7 +588,6 @@ def test_get_theme_unknown_id_falls_back_to_default() -> None:
 
 # ------------------------------------------- diálogo Ajustes en pestañas
 def test_settings_dialog_has_tabs_and_appearance(qapp: QApplication) -> None:
-    """Ajustes en pestañas: General, Notificaciones, Apariencia, Atajos, Información."""
     from PySide6.QtWidgets import QTabWidget
 
     dialog = SettingsDialog(
@@ -617,13 +598,18 @@ def test_settings_dialog_has_tabs_and_appearance(qapp: QApplication) -> None:
     tabs = dialog.findChild(QTabWidget)
     assert tabs is not None
     labels = [tabs.tabText(i) for i in range(tabs.count())]
-    assert labels == ["General", "Notificaciones", "Apariencia", "Atajos", "Información"]
+    assert labels == ["General", "Apariencia", "Atajos"]
+    # Notificaciones e Información viven dentro de la pestaña General.
+    from PySide6.QtWidgets import QGroupBox
+
+    general = tabs.widget(0)
+    groups = {box.title() for box in general.findChildren(QGroupBox)}
+    assert {"Idioma", "Notificaciones", "Información"} <= groups
     # La combo de temas enumera los 3 temas cargados.
     assert dialog._combo_theme.count() == 3  # noqa: SLF001 - tests
 
 
 def test_settings_dialog_emits_appearance(qapp: QApplication) -> None:
-    """apply_appearance emite (tema, espectro, carátula) al aceptar."""
     dialog = SettingsDialog(
         get_settings(),
         notifier_backend="test-backend",
@@ -644,7 +630,6 @@ def test_settings_dialog_emits_appearance(qapp: QApplication) -> None:
 
 # ------------------------------------------- vista Favoritos (Ctrl+3)
 def test_songs_table_favorites_only_mode(songs: SongsTable, db: LibraryDatabase) -> None:
-    """Modo solo-favoritas: muestra únicamente las ★ marcadas."""
     assert songs.favorites_only is False
     db.toggle_favorite(str(Path(db.path).parent / "dos.wav"))
 
@@ -656,7 +641,6 @@ def test_songs_table_favorites_only_mode(songs: SongsTable, db: LibraryDatabase)
 
 
 def test_songs_table_refresh_requested_signal(songs: SongsTable) -> None:
-    """El botón de refresco emite refresh_requested (la ventana re-escanea)."""
     received: list[int] = []
     songs.refresh_requested.connect(lambda: received.append(1))
 
@@ -666,7 +650,6 @@ def test_songs_table_refresh_requested_signal(songs: SongsTable) -> None:
 
 
 def test_settings_library_folders_roundtrip(tmp_path: Path) -> None:
-    """library_folders persiste las carpetas escaneadas (Refrescar)."""
     settings = Settings(tmp_path / "PyAmp-test.conf")
 
     assert settings.library_folders == []
@@ -678,7 +661,6 @@ def test_settings_library_folders_roundtrip(tmp_path: Path) -> None:
 
 # ------------------------------------------------ letras: salto y editor
 def test_lyrics_window_seek_requested_on_double_click(qapp: QApplication, tmp_path: Path) -> None:
-    """Doble clic en una línea emite seek_requested con su marca de tiempo."""
     audio = tmp_path / "tema-seekclick-test.mp3"
     audio.write_bytes(b"")
     (tmp_path / "tema-seekclick-test.lrc").write_text(
@@ -700,7 +682,6 @@ def test_lyrics_window_seek_requested_on_double_click(qapp: QApplication, tmp_pa
 def test_lyrics_editor_saves_new_file_with_song_name(
     qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Escribir letra nueva la guarda como <canción>.lrc en la biblioteca."""
     import app.ui.lyrics_editor as editor_module
 
     # LYRICS_DIR es una constante de módulo: se inyecta una carpeta temporal
@@ -723,7 +704,6 @@ def test_lyrics_editor_saves_new_file_with_song_name(
 
 
 def test_lyrics_editor_edits_existing_sidecar(qapp: QApplication, tmp_path: Path) -> None:
-    """Si la pista ya tiene .lrc junto al audio, se edita ese archivo."""
     from app.ui.lyrics_editor import LyricsEditorDialog
 
     audio = tmp_path / "tema-editar-test.mp3"
@@ -739,7 +719,6 @@ def test_lyrics_editor_edits_existing_sidecar(qapp: QApplication, tmp_path: Path
 
 # ------------------------------------------- espectro: captura y privacidad
 def test_spectrum_stop_capture_keeps_availability(qapp: QApplication) -> None:
-    """stop_capture termina parec sin marcar la captura como no disponible."""
     widget = SpectrumWidget()
     widget.set_playing(True)
     widget.stop_capture()
@@ -751,7 +730,6 @@ def test_spectrum_stop_capture_keeps_availability(qapp: QApplication) -> None:
 
 
 def test_spectrum_set_hue_changes_bar_color(qapp: QApplication) -> None:
-    """set_hue cambia el tono de las barras (tema visual)."""
     widget = SpectrumWidget()
     assert widget._hue == 210  # noqa: SLF001 - tests (azul por defecto)
     widget.set_hue(140)
@@ -761,7 +739,6 @@ def test_spectrum_set_hue_changes_bar_color(qapp: QApplication) -> None:
 
 
 def test_spectrum_set_colors_follow_theme(qapp: QApplication) -> None:
-    """El fondo y la línea central del espectro siguen el tema activo."""
     widget = SpectrumWidget()
     assert widget._bg_color.name() == "#181818"  # noqa: SLF001 - tests
     widget.set_spectrum_colors("#e3d7c3", "#bfae90")
@@ -772,7 +749,6 @@ def test_spectrum_set_colors_follow_theme(qapp: QApplication) -> None:
 
 
 def test_format_album_label_hides_placeholder_year() -> None:
-    """El año «0000» que guarda la BD no se muestra en el árbol."""
     from app.ui.library_panel import format_album_label
 
     assert format_album_label("Disco", "0000") == "Disco"

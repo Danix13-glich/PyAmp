@@ -1,1 +1,3 @@
-"""Radio online: cliente de radio-browser.info y CRUD de emisoras."""
+from app.radio.stations import BUILTIN_STATIONS, RadioLibrary
+
+__all__ = ["BUILTIN_STATIONS", "RadioLibrary"]

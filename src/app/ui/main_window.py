@@ -1,21 +1,3 @@
-"""Ventana principal de PyAmp — Fase 4.
-
-Vistas (menú Ver): «Canciones» (tabla del catálogo, por defecto) y
-«Biblioteca» (árbol artista→álbum→pista), una sola a todo el ancho en un
-``QStackedWidget``. Sin lista lateral: la cola interna se controla con el
-transporte (▶/siguiente/anterior).
-
-Reglas que respeta:
-
-* La UI **nunca** habla con VLC: llama a :class:`app.core.player.Player`
-  y escucha sus señales.
-* La UI **nunca** lanza notificaciones: solo existe UNA conexión
-  ``player.track_changed -> notifier.notify_track`` (el botón «Probar»
-  de Ajustes pasa por el MISMO Notifier).
-* Carpetas: :class:`_FolderLoader` (cola) y :class:`ScannerThread`
-  (biblioteca) en QThread — la interfaz nunca se bloquea (RNF).
-"""
-
 from __future__ import annotations
 
 import logging
@@ -52,9 +34,9 @@ from app.core.player import STATE_PAUSED, STATE_PLAYING, STATE_STOPPED, Player
 from app.core.playlist import audio_filter_string, collect_audio_files
 from app.core.settings import (
     SHORTCUT_DEFAULTS,
-    VIEW_BIBLIOTECA,
     VIEW_CANCIONES,
     VIEW_FAVORITOS,
+    VIEW_RADIO,
     Settings,
     get_settings,
 )
@@ -62,14 +44,15 @@ from app.i18n import set_language, tr
 from app.library.covers import extract_cover
 from app.library.database import LibraryDatabase
 from app.library.metadata import format_audio_info, read_metadata
-from app.library.models import Track
+from app.library.models import RadioStation, Track
 from app.library.scanner import ScannerThread
 from app.notifications.notifier import Notifier
+from app.radio import RadioLibrary
 from app.themes import DEFAULT_THEME_ID, Theme, get_theme, load_themes
 from app.ui.cover_widget import CoverLabel
-from app.ui.library_panel import ROLE_TRACK, LibraryPanel
 from app.ui.lyrics_editor import LyricsEditorDialog
 from app.ui.lyrics_window import LyricsWindow
+from app.ui.radio_panel import RadioPanel
 from app.ui.settings_dialog import SettingsDialog
 from app.ui.songs_table import SongsTable
 from app.ui.spectrum_widget import SpectrumWidget
@@ -83,7 +66,7 @@ WINDOW_TITLE = "PyAmp"
 ERROR_TIMEOUT_MS = 10000
 VOLUME_SLIDER_WIDTH = 140
 
-#: Tamaño inicial de la ventana (ajuste Fase 5: 630×485).
+#: Tamaño inicial de la ventana.
 WINDOW_INITIAL_SIZE = (630, 485)
 
 #: Separación (px) entre la ventana principal y la de letra.
@@ -91,12 +74,6 @@ LYRICS_GAP_PX = 8
 
 
 class _FolderLoader(QThread):
-    """Recorre una carpeta buscando audio sin bloquear la UI (RNF).
-
-    Args:
-        folder: Carpeta a escanear.
-        parent: QObject propietario (la ventana).
-    """
 
     #: Emite la lista de rutas encontradas (llega encolada al hilo de UI).
     paths_loaded = Signal(list)
@@ -106,7 +83,6 @@ class _FolderLoader(QThread):
         self._folder = folder
 
     def run(self) -> None:
-        """Cuerpo del hilo: solo llama a la función pura de core/playlist."""
         try:
             paths = collect_audio_files(self._folder)
         except Exception as exc:  # noqa: BLE001 - un error de disco no debe tumbar la app
@@ -116,7 +92,6 @@ class _FolderLoader(QThread):
 
 
 class MainWindow(QMainWindow):
-    """Ventana principal con la UI de la Fase 5."""
 
     #: Peticiones MPRIS llegadas del bus (hilo ajeno → hilo de UI).
     _raise_requested = Signal()
@@ -161,7 +136,6 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ UI
     def _build_ui(self) -> None:
-        """Construye el layout (sin lógica de negocio)."""
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(480, 360)
         self.resize(*WINDOW_INITIAL_SIZE)
@@ -307,15 +281,16 @@ class MainWindow(QMainWindow):
         self._header_panel = header_panel
         layout.addWidget(header_panel)
 
-        # --- vistas a todo el ancho (menú Ver): canciones | biblioteca | favoritos ---
+        # --- vistas a todo el ancho (menú Ver): canciones | favoritos | radio ---
         self._songs_table = SongsTable(self._library)
         self._favorites_table = SongsTable(self._library)
         self._favorites_table.set_favorites_only(True)
-        self._library_panel = LibraryPanel(self._library)
+        self._radio = RadioLibrary(self._settings)
+        self._radio_panel = RadioPanel(self._radio)
         self._stacked = QStackedWidget()
         self._stacked.addWidget(self._songs_table)  # índice 0: canciones
-        self._stacked.addWidget(self._library_panel)  # índice 1: biblioteca
-        self._stacked.addWidget(self._favorites_table)  # índice 2: favoritos
+        self._stacked.addWidget(self._favorites_table)  # índice 1: favoritos
+        self._stacked.addWidget(self._radio_panel)  # índice 2: radio
         layout.addWidget(self._stacked, stretch=1)
 
         self.setCentralWidget(central)
@@ -326,11 +301,9 @@ class MainWindow(QMainWindow):
         self._cover_label.setVisible(self._settings.show_cover)
         self._songs_table.refresh()
         self._favorites_table.refresh()
-        self._library_panel.refresh()
         self._set_view(self._settings.view_mode, save=False)
 
     def _build_menus(self) -> None:
-        """Menú Archivo con las operaciones de playlist."""
         file_menu = self.menuBar().addMenu(tr("&Archivo"))
 
         action_open_files = QAction(tr("Abrir &archivo(s)..."), self)
@@ -380,22 +353,22 @@ class MainWindow(QMainWindow):
         self._action_view_canciones.setCheckable(True)
         self._action_view_canciones.triggered.connect(lambda: self._set_view(VIEW_CANCIONES))
         self._register_shortcut("view_canciones", self._action_view_canciones)
-        self._action_view_biblioteca = QAction(tr("&Biblioteca (árbol)"), self)
-        self._action_view_biblioteca.setCheckable(True)
-        self._action_view_biblioteca.triggered.connect(lambda: self._set_view(VIEW_BIBLIOTECA))
-        self._register_shortcut("view_biblioteca", self._action_view_biblioteca)
         self._action_view_favoritos = QAction(tr("F&avoritos (★)"), self)
         self._action_view_favoritos.setCheckable(True)
         self._action_view_favoritos.triggered.connect(lambda: self._set_view(VIEW_FAVORITOS))
         self._register_shortcut("view_favoritos", self._action_view_favoritos)
+        self._action_view_radio = QAction(tr("&Radio online"), self)
+        self._action_view_radio.setCheckable(True)
+        self._action_view_radio.triggered.connect(lambda: self._set_view(VIEW_RADIO))
+        self._register_shortcut("view_radio", self._action_view_radio)
         view_group = QActionGroup(self)
         view_group.setExclusive(True)
         view_group.addAction(self._action_view_canciones)
-        view_group.addAction(self._action_view_biblioteca)
         view_group.addAction(self._action_view_favoritos)
+        view_group.addAction(self._action_view_radio)
         view_menu.addAction(self._action_view_canciones)
-        view_menu.addAction(self._action_view_biblioteca)
         view_menu.addAction(self._action_view_favoritos)
+        view_menu.addAction(self._action_view_radio)
 
         view_menu.addSeparator()
 
@@ -447,19 +420,12 @@ class MainWindow(QMainWindow):
         self._build_shortcuts()
 
     def _register_shortcut(self, shortcut_id: str, action: QAction) -> None:
-        """Vincula la acción a su atajo (personalizado o por defecto).
-
-        Todas las acciones se quedan registradas en
-        ``_shortcut_actions`` para poder reasignarlas en caliente desde
-        Ajustes (``apply_shortcuts``) sin reconstruir los menús.
-        """
         self._shortcut_actions[shortcut_id] = action
         default = SHORTCUT_DEFAULTS[shortcut_id]
         sequence = self._settings.shortcuts.get(shortcut_id, default)
         action.setShortcut(QKeySequence(sequence))
 
     def _apply_shortcuts(self) -> None:
-        """Reaplica los atajos (personalizados o por defecto) a las acciones."""
         custom = self._settings.shortcuts
         for shortcut_id, action in self._shortcut_actions.items():
             sequence = custom.get(shortcut_id, SHORTCUT_DEFAULTS[shortcut_id])
@@ -467,14 +433,12 @@ class MainWindow(QMainWindow):
         self._refresh_shortcut_labels()
 
     def _shortcut_label(self, shortcut_id: str) -> str:
-        """Texto actual del atajo (para tooltips y nombres visibles)."""
         action = self._shortcut_actions.get(shortcut_id)
         if action is None:
             return SHORTCUT_DEFAULTS[shortcut_id]
         return action.shortcut().toString(QKeySequence.SequenceFormat.PortableText)
 
     def _refresh_shortcut_labels(self) -> None:
-        """Actualiza los tooltips del transporte que citan sus teclas."""
         prev_label = f"{tr('Anterior')} ({self._shortcut_label('prev')})"
         self._button_prev.setToolTip(prev_label)
         self._button_prev.setAccessibleName(prev_label)
@@ -484,13 +448,6 @@ class MainWindow(QMainWindow):
         self._on_state_changed(self._player.state)
 
     def _build_shortcuts(self) -> None:
-        """Teclas multimedia (fijas) y atajos de transporte reasignables.
-
-        Las teclas multimedia usan los enums ``Qt.Key`` (el parse por
-        nombre «MediaPlay» no produce una secuencia portable en Qt6) y
-        quedan fuera del catálogo personalizable: son teclas de hardware.
-        F9/F10/F11 sí pasan por ``_register_shortcut`` (Ajustes → Atajos).
-        """
         media_shortcuts: tuple[tuple[QKeySequence, str, Callable[..., Any]], ...] = (
             (
                 QKeySequence(Qt.Key.Key_MediaPrevious),
@@ -543,7 +500,6 @@ class MainWindow(QMainWindow):
         tooltip: str,
         slot: Callable[..., Any],
     ) -> QToolButton:
-        """Crea un botón de transporte con icono del tema y tooltip."""
         button = QToolButton()
         self._icon_buttons[button] = icon
         button.setIcon(self._transport_icon(icon))
@@ -553,13 +509,6 @@ class MainWindow(QMainWindow):
         return button
 
     def _transport_icon(self, standard: QStyle.StandardPixmap) -> QIcon:
-        """Icono nativo teñido con el color de iconos del tema activo.
-
-        Los iconos del escritorio heredan su color del tema del sistema:
-        en un tema claro como «Arena clara» quedaban claros sobre fondo
-        claro y no se veían. Teñirlos garantiza contraste en cualquier
-        tema.
-        """
         base = self.style().standardIcon(standard)
         pixmap = base.pixmap(24, 24)
         if pixmap.isNull():
@@ -571,13 +520,11 @@ class MainWindow(QMainWindow):
         return QIcon(pixmap)
 
     def _refresh_icon_buttons(self) -> None:
-        """Re-tiñe todos los iconos de transporte con el tema activo."""
         for button, standard in self._icon_buttons.items():
             button.setIcon(self._transport_icon(standard))
 
     # --------------------------------------------------------------- señales
     def _connect_signals(self) -> None:
-        """Conecta las señales del player a la UI (y solo eso)."""
         player = self._player
         player.track_changed.connect(self._on_track_changed)
         player.playback_state_changed.connect(self._on_state_changed)
@@ -598,15 +545,14 @@ class MainWindow(QMainWindow):
         self._favorites_table.track_activated.connect(self._on_library_track_activated)
         self._favorites_table.favorite_toggled.connect(self._on_favorite_row_toggled)
         self._favorites_table.refresh_requested.connect(self._on_refresh_songs)
-        self._library_panel.track_activated.connect(self._on_library_track_activated)
-        self._library_panel.selection_changed.connect(self._on_library_selection_changed)
+        self._radio_panel.play_requested.connect(self._on_radio_play)
+        self._radio_panel.stop_requested.connect(self._on_radio_stop)
 
         if not player.is_available:
             self.statusBar().showMessage(player.backend_error or tr("Audio no disponible"), 0)
 
     # ------------------------------------------------------------- acciones
     def _on_open_files(self) -> None:
-        """Diálogo multi-archivo: añade a la playlist."""
         paths, _ = QFileDialog.getOpenFileNames(
             self,
             tr("Abrir archivos de audio"),
@@ -620,7 +566,6 @@ class MainWindow(QMainWindow):
         self._add_paths(paths)
 
     def _on_open_folder(self) -> None:
-        """Diálogo de carpeta: encola en 2.º plano y actualiza la biblioteca."""
         if self._folder_loader is not None and self._folder_loader.isRunning():
             return
         folder = QFileDialog.getExistingDirectory(self, tr("Abrir carpeta"), self._last_folder)
@@ -634,12 +579,11 @@ class MainWindow(QMainWindow):
         loader.finished.connect(self._on_folder_finished)
         self._folder_loader = loader
         loader.start()
-        # Fase 4: la carpeta también pasa a la biblioteca (en 2.º plano),
+        # La carpeta también pasa a la biblioteca (en 2.º plano),
         # de modo que las canciones siempre aparecen en la vista Canciones.
         self._start_scan(folder)
 
     def _on_paths_loaded(self, paths: list) -> None:
-        """Resultado del escaneo (hilo de UI)."""
         if not paths:
             self.statusBar().showMessage(
                 tr("No se encontraron archivos de audio"), ERROR_TIMEOUT_MS
@@ -654,9 +598,8 @@ class MainWindow(QMainWindow):
         self._folder_loader = None
         self._action_open_folder.setEnabled(True)
 
-    # ------------------------------------------------- biblioteca (Fase 2)
+    # ------------------------------------------------------ biblioteca
     def _on_scan_library(self) -> None:
-        """Diálogo de carpeta → escaneo de biblioteca en QThread."""
         if self._scanner is not None and self._scanner.isRunning():
             return
         folder = QFileDialog.getExistingDirectory(
@@ -668,7 +611,6 @@ class MainWindow(QMainWindow):
         self._start_scan(folder)
 
     def _start_scan(self, folder: str) -> None:
-        """Lanza el escáner de biblioteca en QThread (nunca bloquea la UI)."""
         if self._scanner is not None and self._scanner.isRunning():
             return
         self._remember_scan_folder(folder)
@@ -682,7 +624,6 @@ class MainWindow(QMainWindow):
         scanner.start()
 
     def _remember_scan_folder(self, folder: str) -> None:
-        """Apunta la carpeta escaneada para poder re-escanearla (Refrescar)."""
         try:
             resolved = str(Path(folder).expanduser().resolve())
         except OSError:
@@ -693,12 +634,6 @@ class MainWindow(QMainWindow):
             self._settings.library_folders = folders
 
     def _on_refresh_songs(self) -> None:
-        """Botón «Refrescar canciones»: re-escanea TODAS las carpetas guardadas.
-
-        A diferencia de «Escanear carpeta...» (una carpeta elegida), el
-        refresco busca todas las canciones de las carpetas seleccionadas
-        previamente en la biblioteca (las recordadas en QSettings).
-        """
         if self._scanner is not None and self._scanner.isRunning():
             self.statusBar().showMessage(tr("Ya hay un escaneo en curso"), ERROR_TIMEOUT_MS)
             return
@@ -719,7 +654,6 @@ class MainWindow(QMainWindow):
         self._start_next_scan()
 
     def _start_next_scan(self) -> None:
-        """Escanea la siguiente carpeta en cola (o termina la tanda)."""
         if not self._scan_queue:
             self._action_scan.setEnabled(True)
             return
@@ -734,7 +668,6 @@ class MainWindow(QMainWindow):
         )
 
     def _on_scan_finished(self, summary: object) -> None:
-        """Resumen del escaneo (hilo de UI); sigue la cola si queda carpetas."""
         self._scanner = None
         if self._scan_queue:
             self._start_next_scan()
@@ -756,13 +689,13 @@ class MainWindow(QMainWindow):
         if summary.get("cancelled"):
             message += tr(" (escaneo cancelado)")
         self.statusBar().showMessage(message, ERROR_TIMEOUT_MS)
-        self._library_panel.refresh()
         self._songs_table.refresh()
         self._favorites_table.refresh()
 
     def _record_library_play(self, track: object) -> None:
-        """Suma una reproducción en la biblioteca (nunca rompe el playback)."""
         if not isinstance(track, Track) or not track.path:
+            return
+        if not Path(track.path).is_file():  # las emisoras de radio no van a la BD
             return
         try:
             self._library.record_play_by_path(track.path)
@@ -770,7 +703,6 @@ class MainWindow(QMainWindow):
             logger.warning("No se pudo registrar la reproducción: %s", exc)
 
     def _on_library_track_activated(self, track: object, context: object) -> None:
-        """Doble clic en la biblioteca: el contexto visible pasa a playlist."""
         if not isinstance(track, Track) or not isinstance(context, list):
             return
         tracks = [t for t in context if isinstance(t, Track)]
@@ -793,24 +725,7 @@ class MainWindow(QMainWindow):
             ERROR_TIMEOUT_MS,
         )
 
-    def _on_library_selection_changed(self, selection: object) -> None:
-        """Selección en la biblioteca → vista previa de carátula."""
-        cover = getattr(selection, "cover_path", None)
-        if cover:
-            self._cover_label.set_cover(cover)
-        else:
-            self._show_current_cover()
-
-    def _show_current_cover(self) -> None:
-        """Carátula de la pista sonando (caché de covers, Fase 2)."""
-        current = self._player.current_track
-        if current is None:
-            self._cover_label.clear_cover()
-            return
-        self._cover_label.set_cover(self._cover_for(current))
-
     def _cover_for(self, track: Track) -> str | None:
-        """Ruta de carátula de la pista; extrae a caché si aún no está."""
         if track.cover_path:
             return track.cover_path
         try:
@@ -820,7 +735,6 @@ class MainWindow(QMainWindow):
             return None
 
     def _add_paths(self, paths: list[str]) -> None:
-        """Añade pistas a la playlist interna; arranca si estaba vacía."""
         if not paths:
             return
         was_empty = len(self._player.playlist) == 0
@@ -891,12 +805,10 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------ slots del player
     def _on_track_changed(self, track: object) -> None:
-        """Nuevo pista sonando: etiquetas, fila y (vía única conexión) notificación."""
         if isinstance(track, Track):
             self._show_track(track)
 
     def _show_track(self, track: Track) -> None:
-        """Actualiza etiquetas, carátula, favorito, letra y MPRIS."""
         self._label_title.setText(track.display_title)
         self._label_title.setToolTip(track.path)
         self._label_artist.setText(track.display_artist)
@@ -927,7 +839,6 @@ class MainWindow(QMainWindow):
             self._mpris.update_metadata(cover or "")
 
     def _on_state_changed(self, state: str) -> None:
-        """Refleja el estado en el icono del play unificado y el espectro."""
         playing = state == STATE_PLAYING
         play_label = self._shortcut_label("play_pause")
         if playing:
@@ -970,7 +881,6 @@ class MainWindow(QMainWindow):
             self._mpris.update_volume()
 
     def _on_error(self, message: str) -> None:
-        """Error no fatal: se muestra en la barra de estado; nada crashea."""
         logger.warning("UI recibe error: %s", message)
         self.statusBar().showMessage(message, ERROR_TIMEOUT_MS)
 
@@ -990,20 +900,18 @@ class MainWindow(QMainWindow):
         self._player.set_muted(checked)
         self._update_mute_icon(checked)
 
-    # ------------------------------------------------- Fase 4: vistas/ajustes
+    # -------------------------------------------------------- vistas/ajustes
     def _on_play_clicked(self) -> None:
-        """▶/⏸ unificado: pausa si suena; (re)anuda o arranca si no."""
         self._player.toggle_pause()
 
     def _set_view(self, mode: str, *, save: bool = True) -> None:
-        """Cambia la vista activa (menú Ver) y la recuerda en QSettings."""
-        if mode == VIEW_BIBLIOTECA:
+        if mode == VIEW_FAVORITOS:
             self._stacked.setCurrentIndex(1)
-            action = self._action_view_biblioteca
-        elif mode == VIEW_FAVORITOS:
-            self._stacked.setCurrentIndex(2)
             self._favorites_table.refresh()  # ★ puede haber cambiado
             action = self._action_view_favoritos
+        elif mode == VIEW_RADIO:
+            self._stacked.setCurrentIndex(2)
+            action = self._action_view_radio
         else:
             mode = VIEW_CANCIONES
             self._stacked.setCurrentIndex(0)
@@ -1012,8 +920,20 @@ class MainWindow(QMainWindow):
         if save:
             self._settings.view_mode = mode
 
+    def _on_radio_play(self, station: object) -> None:
+        if not isinstance(station, RadioStation):
+            return
+        if self._player.play_stream(station.url, station.name, tr("Radio online")):
+            self._radio_panel.show_message(tr("Reproduciendo {name}").format(name=station.name))
+            self.statusBar().showMessage(
+                tr("▶ {name} (radio)").format(name=station.name), ERROR_TIMEOUT_MS
+            )
+
+    def _on_radio_stop(self) -> None:
+        self._player.stop()
+        self._radio_panel.show_message(tr("Radio detenida"))
+
     def _on_open_settings(self) -> None:
-        """Diálogo de Ajustes; aplica notificaciones al vuelo y prueba."""
         stats: dict[str, int] | None
         try:
             stats = self._library.stats()
@@ -1034,12 +954,6 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _on_apply_language(self, code: str) -> None:
-        """Ajustes → General: guarda el idioma y reinicia para aplicarlo.
-
-        Si el idioma no cambia, no se reinicia nada. El reinicio se aplaza
-        al bucle de eventos (``QTimer.singleShot(0, ...)``) para que el
-        diálogo termine de cerrarse antes.
-        """
         language = str(code).strip().lower()
         if language == self._settings.language:
             return
@@ -1048,7 +962,6 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._restart_app)
 
     def _restart_app(self) -> None:
-        """Relanza PyAmp (mismo proceso/argumentos) para aplicar el idioma."""
         program = sys.executable
         if getattr(sys, "frozen", False):  # binario de PyInstaller
             args = list(sys.argv[1:])
@@ -1059,7 +972,6 @@ class MainWindow(QMainWindow):
         QApplication.quit()
 
     def _apply_appearance_from_dialog(self, theme_id: str, spectrum: bool, cover: bool) -> None:
-        """Ajustes → Apariencia: tema, espectrograma y carátula al vuelo."""
         self._apply_theme_id(str(theme_id))
         if bool(spectrum) != self._action_show_spectrum.isChecked():
             self._action_show_spectrum.setChecked(bool(spectrum))
@@ -1069,14 +981,12 @@ class MainWindow(QMainWindow):
             self._on_toggle_cover(bool(cover))
 
     def _apply_shortcuts_from_dialog(self, mapping: dict) -> None:
-        """Persiste los atajos elegidos y los reaplica al vuelo."""
         clean = {key: str(value) for key, value in dict(mapping).items()}
         self._settings.shortcuts = clean
         self._apply_shortcuts()
         self.statusBar().showMessage(tr("Atajos de teclado actualizados"), ERROR_TIMEOUT_MS)
 
     def _apply_notification_settings(self, enabled: bool, timeout_ms: int) -> None:
-        """Persiste en QSettings y actualiza el Notifier en caliente."""
         self._settings.notifications_enabled = enabled
         self._settings.notifications_timeout_ms = timeout_ms
         self._notifier.enabled = enabled
@@ -1095,7 +1005,6 @@ class MainWindow(QMainWindow):
         )
 
     def _send_test_notification(self) -> None:
-        """Notificación de prueba por el MISMO camino que las de pista."""
         try:
             self._notifier.notify(
                 tr("Notificación de prueba"), tr("PyAmp funciona correctamente ✓")
@@ -1109,7 +1018,6 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(tr("Notificación de prueba enviada"), ERROR_TIMEOUT_MS)
 
     def _on_favorite_clicked(self) -> None:
-        """★ de la barra de transporte: alterna el favorito de la pista actual."""
         track = self._player.current_track
         if track is None or not track.path:
             self._button_favorite.setChecked(False)
@@ -1117,12 +1025,10 @@ class MainWindow(QMainWindow):
         self._toggle_favorite(track)
 
     def _on_favorite_row_toggled(self, track: object) -> None:
-        """Doble clic sobre ★ en la tabla: alterna y refresca la columna."""
         if isinstance(track, Track) and track.path:
             self._toggle_favorite(track)
 
     def _toggle_favorite(self, track: Track) -> None:
-        """Alterna el favorito en la BD y refleja el cambio en la UI."""
         try:
             favorite = self._library.toggle_favorite(track.path)
         except Exception as exc:  # noqa: BLE001 - la música no se detiene
@@ -1142,9 +1048,8 @@ class MainWindow(QMainWindow):
             ERROR_TIMEOUT_MS,
         )
 
-    # ------------------------------------------------- Fase 5: Ver/espectro/letra
+    # -------------------------------------------------- Ver/espectro/letra
     def _on_toggle_spectrum(self, checked: bool) -> None:
-        """Ver → Mostrar espectrograma: oculta/muestra y persiste."""
         self._settings.show_spectrum = checked
         self._spectrum.setVisible(checked)
         if checked:
@@ -1158,7 +1063,6 @@ class MainWindow(QMainWindow):
         )
 
     def _on_toggle_cover(self, checked: bool) -> None:
-        """Ver → Mostrar imagen: oculta/muestra y persiste."""
         self._settings.show_cover = checked
         self._cover_label.setVisible(checked)
         self.statusBar().showMessage(
@@ -1167,11 +1071,9 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------ temas (0.1.6)
     def _apply_theme_id(self, theme_id: str) -> None:
-        """Aplica un tema por id y lo persiste (menú Ver o Ajustes)."""
         self._apply_theme(get_theme(theme_id), save=True)
 
     def _apply_theme(self, theme: Theme, *, save: bool = True) -> None:
-        """Aplica el tema a toda la app (QSS global, cabecera y espectro)."""
         self._theme = theme
         app = QApplication.instance()
         if isinstance(app, QApplication):
@@ -1189,14 +1091,12 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------- 0.1.6: aleatorio/repetir
     def _on_shuffle_toggled(self, checked: bool) -> None:
-        """🔀: alterna el modo aleatorio (persistido en QSettings)."""
         self._player.shuffle = checked
         self.statusBar().showMessage(
             tr("Aleatorio activado") if checked else tr("Aleatorio desactivado"), ERROR_TIMEOUT_MS
         )
 
     def _on_repeat_toggled(self, checked: bool) -> None:
-        """🔁: alterna la repetición de playlist (persistida en QSettings)."""
         self._player.repeat = checked
         self.statusBar().showMessage(
             tr("Repetición activada") if checked else tr("Repetición desactivada"), ERROR_TIMEOUT_MS
@@ -1204,12 +1104,6 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------ 0.1.6: editor de letras
     def _on_edit_lyrics(self) -> None:
-        """Editar → Editar letra: crea/edita el .lrc de la canción elegida.
-
-        La pista es la seleccionada en la vista activa (o, si no hay
-        selección, la que está sonando). Si ya tiene letra se abre ese
-        archivo; si no, se guardará una nueva con el nombre de la canción.
-        """
         track = self._selected_track()
         if track is None or not track.path:
             self.statusBar().showMessage(
@@ -1222,25 +1116,16 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _selected_track(self) -> Track | None:
-        """Pista seleccionada en la vista activa, o la que está sonando."""
         current = self._stacked.currentWidget()
-        if current is self._library_panel:
-            for item in self._library_panel.tree.selectedItems():
-                track = item.data(0, ROLE_TRACK)
-                if isinstance(track, Track):
-                    return track
-        elif current is self._favorites_table:
+        if current is self._favorites_table:
             selected = self._favorites_table.selected_track()
-            if selected is not None:
-                return selected
-        else:
+        elif current is self._songs_table:
             selected = self._songs_table.selected_track()
-            if selected is not None:
-                return selected
-        return self._player.current_track
+        else:
+            selected = None
+        return selected if selected is not None else self._player.current_track
 
     def _on_lyrics_saved(self, path: str) -> None:
-        """Letra guardada: recargar la ventana de letra si está visible."""
         self.statusBar().showMessage(
             tr("Letra guardada en {path}").format(path=path), ERROR_TIMEOUT_MS
         )
@@ -1253,7 +1138,6 @@ class MainWindow(QMainWindow):
             self._lyrics_window.show_track(track)
 
     def _on_show_lyrics(self) -> None:
-        """Ver → Ver letra: ventana al lado con la letra de la pista actual."""
         if self._lyrics_window is None:
             self._lyrics_window = LyricsWindow(self)
             self._lyrics_window.destroyed.connect(self._on_lyrics_destroyed)
@@ -1268,7 +1152,6 @@ class MainWindow(QMainWindow):
         window.move(self.x() + self.width() + LYRICS_GAP_PX, self.y())
 
     def _on_lyrics_seek(self, position_ms: int) -> None:
-        """La letra pedida: salta el cursor y la reproducción continúa."""
         if self._player.current_track is None:
             return
         if self._player.state == STATE_STOPPED:
@@ -1284,11 +1167,9 @@ class MainWindow(QMainWindow):
         )
 
     def _on_lyrics_destroyed(self, *_args: Any) -> None:
-        """La ventana de letra se cerró: olvidar la referencia."""
         self._lyrics_window = None
 
     def _init_mpris(self) -> None:
-        """Integración MPRIS (solo Linux; silenciosa si no hay D-Bus)."""
         if sys.platform != "linux":
             return
         try:
@@ -1306,7 +1187,6 @@ class MainWindow(QMainWindow):
             logger.info("MPRIS deshabilitado: %s", exc)
 
     def _raise_and_activate(self) -> None:
-        """Raise vía MPRIS: trae la ventana al frente."""
         self.show()
         self.raise_()
         self.activateWindow()
@@ -1326,7 +1206,6 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------- persistencia
     def _restore_state(self) -> None:
-        """Restaura geometría, playlist, pista y volumen desde QSettings."""
         geometry = self._settings.window_geometry
         if geometry is not None:
             self.restoreGeometry(geometry)
@@ -1363,7 +1242,6 @@ class MainWindow(QMainWindow):
             self._update_mute_icon(True)
 
     def closeEvent(self, event: object) -> None:
-        """Guarda estado y apaga todo de forma ordenada."""
         self._settings.window_geometry = self.saveGeometry()
         self._settings.playlist_paths = [track.path for track in self._player.playlist]
         self._settings.playlist_index = self._player.playlist.current_index

@@ -1,19 +1,3 @@
-"""Ventana «Ver letra» (Fase 5): letras LRC locales sincronizadas.
-
-Busca la letra en dos sitios, en este orden:
-
-1. Junto al audio: ``cancion.lrc`` (mismo nombre y carpeta).
-2. En la biblioteca de letras de la app: ``<datos>/PyAmp/lyrics/``.
-
-Si no hay letra para la pista (o no hay pista), el panel muestra el
-aviso centrado «Letra no disponible :(". La ventana es independiente
-(``Qt.Window``), se sitúa junto a la principal y sigue la reproducción:
-la línea que coincide con la posición actual se resalta en negrita azul.
-Doble clic (o Enter) sobre una línea emite ``seek_requested(posición_ms)``,
-con lo que la reproducción salta a ese punto y continúa desde ahí.
-Sin metadatos de red: solo archivos locales.
-"""
-
 from __future__ import annotations
 
 import bisect
@@ -48,12 +32,6 @@ PLACEHOLDER_TEXT = "Letra no disponible :("
 
 
 def parse_lrc(text: str) -> list[tuple[int, str]]:
-    """Convierte el contenido de un .lrc en ``(posición_ms, línea)``.
-
-    Ignora metatags (``[ar:]``, ``[ti:]``...) y líneas sin marca de
-    tiempo. Varias marcas sobre la misma línea generan varias entradas.
-    La salida sale ordenada por posición.
-    """
     entries: list[tuple[int, str]] = []
     for raw in text.splitlines():
         line = raw.strip()
@@ -74,7 +52,6 @@ def parse_lrc(text: str) -> list[tuple[int, str]]:
 
 
 def find_lrc_path(track_path: str) -> Path | None:
-    """Ruta del .lrc de la pista (junto al audio o en la carpeta de letras)."""
     audio = Path(track_path)
     candidates = (audio.with_suffix(".lrc"), LYRICS_DIR / f"{audio.stem}.lrc")
     for candidate in candidates:
@@ -84,14 +61,6 @@ def find_lrc_path(track_path: str) -> Path | None:
 
 
 class LyricsWindow(QDialog):
-    """Ventana de letra sincronizada con la reproducción (modeless).
-
-    Como ``QDialog`` con la ventana principal como parent, el compositor
-    (KDE/Wayland incluido) la sitúa junto a la principal.
-
-    Señal: ``seek_requested(position_ms)`` — doble clic o Enter sobre una
-    línea con marca de tiempo (la ventana principal salta el player ahí).
-    """
 
     seek_requested = Signal(int)
 
@@ -142,7 +111,6 @@ class LyricsWindow(QDialog):
         self._list.itemActivated.connect(self._on_item_activated)
 
     def _on_item_activated(self, item: QListWidgetItem) -> None:
-        """Doble clic o Enter: saltar a la marca de tiempo de esa línea."""
         row = self._list.row(item)
         if 0 <= row < len(self._times):
             self.seek_requested.emit(self._times[row])
@@ -150,21 +118,17 @@ class LyricsWindow(QDialog):
     # ------------------------------------------------------------ API pública
     @property
     def entries(self) -> list[tuple[int, str]]:
-        """Entradas LRC cargadas (posición_ms, línea)."""
         return list(self._entries)
 
     @property
     def active_row(self) -> int:
-        """Índice de la línea resaltada (-1 si no hay ninguna)."""
         return self._active_row
 
     @property
     def showing_placeholder(self) -> bool:
-        """True si se muestra el aviso «Letra no disponible :(» centrado."""
         return not self._placeholder.isHidden()
 
     def show_track(self, track: Track | None) -> None:
-        """Carga (o limpia) la letra de la pista indicada."""
         self._entries = []
         self._times = []
         self._active_row = -1
@@ -220,12 +184,10 @@ class LyricsWindow(QDialog):
         self._times = [position_ms for position_ms, _lyric in self._entries]
 
     def _set_placeholder(self, visible: bool) -> None:
-        """Muestra el aviso centrado (y oculta la lista) o al revés."""
         self._placeholder.setVisible(visible)
         self._list.setVisible(not visible)
 
     def sync_position(self, position_ms: int) -> None:
-        """Resalta la línea que corresponde a la posición actual."""
         if not self._times:
             return
         row = bisect.bisect_right(self._times, position_ms) - 1
@@ -243,7 +205,6 @@ class LyricsWindow(QDialog):
                 self._list.scrollToItem(item, QListWidget.ScrollHint.PositionAtCenter)
 
     def reset(self) -> None:
-        """Limpia la letra (al detener o vaciar la playlist)."""
         self.show_track(None)
 
     # --------------------------------------------------------------- internas

@@ -1,21 +1,3 @@
-"""Diálogo de Ajustes de PyAmp, organizado en pestañas (0.1.6).
-
-Pestañas y opciones (todas con respaldo real en QSettings):
-
-* **General**: idioma de la interfaz (español/English). Al aceptar, la
-  ventana principal reinicia la app para aplicarlo.
-* **Notificaciones**: activar/desactivar, duración (1–60 s) y botón
-  «Probar notificación» (el envío lo hace la ventana, dueña del Notifier).
-* **Apariencia**: tema visual (Ver → Temas), espectrograma e imagen.
-* **Atajos de teclado**: reasignar las combinaciones del catálogo
-  ``SHORTCUT_DEFAULTS`` (las teclas multimedia del hardware quedan fijas).
-* **Información**: versión, backend de notificaciones y totales de la BD.
-
-El diálogo **no escribe** nada por su cuenta: emite ``apply_language``,
-``apply_settings``, ``apply_appearance`` y ``apply_shortcuts`` y la ventana
-persiste en QSettings y reaplica al vuelo.
-"""
-
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
@@ -26,10 +8,12 @@ from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QFormLayout,
-    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
     QKeySequenceEdit,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -52,8 +36,8 @@ SHORTCUT_LABELS: dict[str, str] = {
     "next": "Pista siguiente",
     "lyrics": "Ver letra",
     "view_canciones": "Ver: Canciones",
-    "view_biblioteca": "Ver: Biblioteca",
     "view_favoritos": "Ver: Favoritos",
+    "view_radio": "Ver: Radio",
     "open_files": "Abrir archivo(s)",
     "open_folder": "Abrir carpeta",
     "load_playlist": "Cargar playlist",
@@ -62,19 +46,11 @@ SHORTCUT_LABELS: dict[str, str] = {
     "quit": "Salir",
 }
 
-#: Filas de la rejilla de atajos (2 columnas de pares etiqueta+tecla).
-SHORTCUT_ROWS = 6
-
-#: Tamaño mínimo del diálogo: cuadrado y holgado, no una franja aplastada.
+#: Tamaño mínimo del diálogo.
 DIALOG_MIN_SIZE = (620, 560)
 
 
 class SettingsDialog(QDialog):
-    """Ajustes modales en pestañas.
-
-    Señales: apply_language, apply_settings, apply_appearance,
-    apply_shortcuts, test_notification.
-    """
 
     apply_language = Signal(str)
     apply_settings = Signal(bool, int)
@@ -99,9 +75,33 @@ class SettingsDialog(QDialog):
         tabs = QTabWidget()
         layout.addWidget(tabs)
 
-        # --- pestaña General (idioma; se aplica al reiniciar la app) ---
-        general_page = QWidget()
-        general_form = QFormLayout(general_page)
+        tabs.addTab(
+            self._build_general(settings, notifier_backend, version, library_stats), tr("General")
+        )
+        tabs.addTab(self._build_appearance(settings), tr("Apariencia"))
+        tabs.addTab(self._build_shortcuts(settings), tr("Atajos"))
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._on_accepted)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    # ------------------------------------------------------------- pestañas
+    def _build_general(
+        self,
+        settings: Settings,
+        notifier_backend: str,
+        version: str,
+        library_stats: dict[str, int] | None,
+    ) -> QWidget:
+        content = QWidget()
+        outer = QVBoxLayout(content)
+        outer.setSpacing(10)
+
+        language_group = QGroupBox(tr("Idioma"))
+        language_form = QFormLayout(language_group)
         self._combo_language = QComboBox()
         for code, name in LANGUAGES.items():
             self._combo_language.addItem(name, code)
@@ -110,12 +110,11 @@ class SettingsDialog(QDialog):
         self._combo_language.setToolTip(
             tr("Idioma de la aplicación. Al aceptar, PyAmp se reinicia en el idioma elegido.")
         )
-        general_form.addRow(tr("Idioma:"), self._combo_language)
-        tabs.addTab(general_page, tr("General"))
+        language_form.addRow(tr("Idioma:"), self._combo_language)
+        outer.addWidget(language_group)
 
-        # --- pestaña Notificaciones ---
-        notif_page = QWidget()
-        notif_form = QFormLayout(notif_page)
+        notif_group = QGroupBox(tr("Notificaciones"))
+        notif_form = QFormLayout(notif_group)
         self._check_enabled = QCheckBox(tr("Activar notificaciones de escritorio"))
         self._check_enabled.setChecked(settings.notifications_enabled)
         notif_form.addRow(self._check_enabled)
@@ -131,58 +130,10 @@ class SettingsDialog(QDialog):
         self._button_test.setToolTip(tr("Envía una notificación de prueba ahora"))
         self._button_test.clicked.connect(self.test_notification.emit)
         notif_form.addRow(self._button_test)
-        tabs.addTab(notif_page, tr("Notificaciones"))
+        outer.addWidget(notif_group)
 
-        # --- pestaña Apariencia (tema, espectrograma, carátula) ---
-        appearance_page = QWidget()
-        appearance_form = QFormLayout(appearance_page)
-
-        self._combo_theme = QComboBox()
-        themes = load_themes()
-        for theme in themes.values():
-            self._combo_theme.addItem(theme.name, theme.id)
-        wanted = settings.theme_id or DEFAULT_THEME_ID
-        index = self._combo_theme.findData(wanted)
-        self._combo_theme.setCurrentIndex(index if index >= 0 else 0)
-        self._combo_theme.setToolTip(tr("Tema visual de toda la aplicación"))
-        appearance_form.addRow(tr("Tema:"), self._combo_theme)
-
-        self._check_spectrum = QCheckBox(tr("Mostrar espectrograma en la cabecera"))
-        self._check_spectrum.setChecked(settings.show_spectrum)
-        appearance_form.addRow(self._check_spectrum)
-
-        self._check_cover = QCheckBox(tr("Mostrar imagen en la cabecera"))
-        self._check_cover.setChecked(settings.show_cover)
-        appearance_form.addRow(self._check_cover)
-        tabs.addTab(appearance_page, tr("Apariencia"))
-
-        # --- pestaña Atajos de teclado (ver SHORTCUT_DEFAULTS) ---
-        shortcuts_page = QWidget()
-        shortcuts_layout = QVBoxLayout(shortcuts_page)
-        hint = QLabel(tr("Pulsa la combinación nueva en cada recuadro. Vacío = valor por defecto."))
-        hint.setWordWrap(True)
-        shortcuts_layout.addWidget(hint)
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(10)
-        grid.setVerticalSpacing(4)
-        custom = settings.shortcuts
-        self._shortcut_edits: dict[str, QKeySequenceEdit] = {}
-        for index, (shortcut_id, default) in enumerate(SHORTCUT_DEFAULTS.items()):
-            row = index % SHORTCUT_ROWS
-            column = (index // SHORTCUT_ROWS) * 2
-            label_text = tr(SHORTCUT_LABELS[shortcut_id])
-            label = QLabel(f"{label_text} ({default}):")
-            edit = QKeySequenceEdit(QKeySequence(custom.get(shortcut_id, default)))
-            edit.setAccessibleName(label_text)
-            self._shortcut_edits[shortcut_id] = edit
-            grid.addWidget(label, row, column)
-            grid.addWidget(edit, row, column + 1)
-        shortcuts_layout.addLayout(grid)
-        tabs.addTab(shortcuts_page, tr("Atajos"))
-
-        # --- pestaña Información ---
-        info_page = QWidget()
-        info_form = QFormLayout(info_page)
+        info_group = QGroupBox(tr("Información"))
+        info_form = QFormLayout(info_group)
         info_form.addRow(tr("Versión:"), QLabel(version))
         info_form.addRow(tr("Notificador:"), QLabel(notifier_backend))
         if library_stats is not None:
@@ -196,15 +147,69 @@ class SettingsDialog(QDialog):
                     )
                 ),
             )
-        tabs.addTab(info_page, tr("Información"))
+        outer.addWidget(info_group)
+        outer.addStretch(1)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self._on_accepted)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(content)
+        return scroll
 
+    def _build_appearance(self, settings: Settings) -> QWidget:
+        page = QWidget()
+        form = QFormLayout(page)
+
+        self._combo_theme = QComboBox()
+        themes = load_themes()
+        for theme in themes.values():
+            self._combo_theme.addItem(theme.name, theme.id)
+        wanted = settings.theme_id or DEFAULT_THEME_ID
+        index = self._combo_theme.findData(wanted)
+        self._combo_theme.setCurrentIndex(index if index >= 0 else 0)
+        self._combo_theme.setToolTip(tr("Tema visual de toda la aplicación"))
+        form.addRow(tr("Tema:"), self._combo_theme)
+
+        self._check_spectrum = QCheckBox(tr("Mostrar espectrograma en la cabecera"))
+        self._check_spectrum.setChecked(settings.show_spectrum)
+        form.addRow(self._check_spectrum)
+
+        self._check_cover = QCheckBox(tr("Mostrar imagen en la cabecera"))
+        self._check_cover.setChecked(settings.show_cover)
+        form.addRow(self._check_cover)
+        return page
+
+    def _build_shortcuts(self, settings: Settings) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        hint = QLabel(tr("Pulsa la combinación nueva en cada recuadro. Vacío = valor por defecto."))
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        custom = settings.shortcuts
+        self._shortcut_edits: dict[str, QKeySequenceEdit] = {}
+        items = list(SHORTCUT_DEFAULTS.items())
+        half = (len(items) + 1) // 2
+        columns = QHBoxLayout()
+        columns.setSpacing(24)
+        for chunk in (items[:half], items[half:]):
+            form = QFormLayout()
+            form.setVerticalSpacing(6)
+            form.setHorizontalSpacing(12)
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+            for shortcut_id, default in chunk:
+                label_text = tr(SHORTCUT_LABELS[shortcut_id])
+                label = QLabel(f"{label_text} ({default}):")
+                edit = QKeySequenceEdit(QKeySequence(custom.get(shortcut_id, default)))
+                edit.setAccessibleName(label_text)
+                self._shortcut_edits[shortcut_id] = edit
+                form.addRow(label, edit)
+            columns.addLayout(form)
+        columns.addStretch(1)
+        layout.addLayout(columns)
+        layout.addStretch(1)
+        return page
+
+    # --------------------------------------------------------------- señales
     def _on_accepted(self) -> None:
         self.apply_language.emit(str(self._combo_language.currentData() or "es"))
         self.apply_settings.emit(self._check_enabled.isChecked(), self._spin_timeout.value() * 1000)
@@ -217,12 +222,6 @@ class SettingsDialog(QDialog):
         self.accept()
 
     def _collect_shortcuts(self) -> dict[str, str]:
-        """Secuencias que difieren de su default (portable; vacío = default).
-
-        Solo se emiten las personalizaciones reales: un atajo igual al
-        default (o borrado) no se guarda, así los defaults futuros siguen
-        aplicando a los usuarios que no lo tocaron.
-        """
         mapping: dict[str, str] = {}
         for shortcut_id, edit in self._shortcut_edits.items():
             sequence = edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText)

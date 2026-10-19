@@ -1,18 +1,3 @@
-"""Biblioteca de PyAmp en SQLite (Fase 2).
-
-Ubicación (RNF): ``<datos>/PyAmp/library.db`` — en Linux
-``~/.local/share/PyAmp/library.db``. Modo WAL + foreign keys en cada
-conexión; el escáner abre su **propia conexión** dentro de su QThread
-(sqlite3 es por hilo) y la UI usa la suya.
-
-Migraciones: ``PRAGMA user_version`` (v1 = esquema inicial). Añadir
-tablas/columnas futuras = ``_migrate`` con ``version < 2``...
-
-Las funciones a nivel de módulo operan sobre una conexión (útiles para el
-escáner); :class:`LibraryDatabase` es la fachada que usa la app y envuelve
-esas mismas funciones con su conexión.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -90,19 +75,10 @@ CREATE INDEX IF NOT EXISTS ix_playlist_tracks_track ON playlist_tracks (track_id
 
 
 def now_iso() -> str:
-    """Marca de tiempo local en ISO 8601 (segundos)."""
     return datetime.now().isoformat(timespec="seconds")
 
 
 def open_connection(path: str | Path) -> sqlite3.Connection:
-    """Abre una conexión lista para usar (WAL + foreign keys).
-
-    Args:
-        path: Ruta del archivo ``.db`` (se crea el padre si no existe).
-
-    Returns:
-        Conexión con ``row_factory = sqlite3.Row``.
-    """
     db_path = Path(path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(db_path))
@@ -113,7 +89,6 @@ def open_connection(path: str | Path) -> sqlite3.Connection:
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    """Aplica los esquemas pendientes según ``PRAGMA user_version``."""
     row = conn.execute("PRAGMA user_version").fetchone()
     version = int(row[0]) if row is not None else 0
 
@@ -125,7 +100,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         version = 1
 
     if version < 2:
-        # Fase 4: favoritos marcados por el usuario.
+        # Favoritos marcados por el usuario.
         conn.execute("ALTER TABLE tracks ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0")
         conn.execute("PRAGMA user_version = 2")
         conn.commit()
@@ -133,17 +108,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
-    """Garantiza el esquema vigente en ``conn`` (idempotente).
-
-    Útil para conexiones propias de otros hilos (el escáner), que no
-    pasan por :class:`LibraryDatabase`.
-    """
     _migrate(conn)
 
 
 # ------------------------------------------------------------------ mapping
 def row_to_track(row: sqlite3.Row) -> Track:
-    """Convierte una fila de ``tracks`` en :class:`Track`."""
     return Track(
         id=row["id"],
         path=row["path"],
@@ -171,7 +140,6 @@ def row_to_track(row: sqlite3.Row) -> Track:
 
 # ------------------------------------------------- operaciones (conexión)
 def _resolve_artist(conn: sqlite3.Connection, name: str | None) -> int | None:
-    """Devuelve el id del artista (creándolo si hace falta); None si no hay."""
     cleaned = str(name).strip() if name else ""
     if not cleaned:
         return None
@@ -183,7 +151,6 @@ def _resolve_artist(conn: sqlite3.Connection, name: str | None) -> int | None:
 def _resolve_album(
     conn: sqlite3.Connection, title: str | None, artist_id: int | None, year: str | None
 ) -> int | None:
-    """Devuelve el id del álbum (creándolo si hace falta); None si no hay."""
     cleaned = str(title).strip() if title else ""
     if not cleaned:
         return None
@@ -199,19 +166,6 @@ def _resolve_album(
 
 
 def upsert_track(conn: sqlite3.Connection, track: Track, *, commit: bool = True) -> int:
-    """Inserta o actualiza la pista por ``path``, resolviendo artista/álbum.
-
-    En actualización se conservan ``added_at``, ``play_count`` y
-    ``last_played_at`` (el escáner no debe borrar las estadísticas).
-
-    Args:
-        conn: Conexión activa.
-        track: Pista con metadatos leídos.
-        commit: False para agrupar varios upserts (el escáner usa lotes).
-
-    Returns:
-        El id de la pista en la BD.
-    """
     artist_id = _resolve_artist(conn, track.artist)
     album_id = _resolve_album(conn, track.album, artist_id, track.year)
 
@@ -281,11 +235,6 @@ def upsert_track(conn: sqlite3.Connection, track: Track, *, commit: bool = True)
 
 
 def remove_missing_tracks(conn: sqlite3.Connection, existing_paths: set[str]) -> int:
-    """Borra las pistas cuyo archivo ya no está en ``existing_paths``.
-
-    Returns:
-        Número de pistas eliminadas.
-    """
     rows = conn.execute("SELECT path FROM tracks").fetchall()
     missing = [row["path"] for row in rows if row["path"] not in existing_paths]
     if not missing:
@@ -297,7 +246,6 @@ def remove_missing_tracks(conn: sqlite3.Connection, existing_paths: set[str]) ->
 
 
 def cleanup_orphan_albums_artists(conn: sqlite3.Connection) -> tuple[int, int]:
-    """Elimina álbumes/artistas sin pistas. Returns: (álbumes, artistas)."""
     cursor = conn.execute(
         "DELETE FROM albums WHERE id NOT IN "
         "(SELECT DISTINCT album_id FROM tracks WHERE album_id IS NOT NULL)"
@@ -313,11 +261,6 @@ def cleanup_orphan_albums_artists(conn: sqlite3.Connection) -> tuple[int, int]:
 
 
 def record_play_by_path(conn: sqlite3.Connection, path: str) -> bool:
-    """Suma una reproducción a la pista con ese ``path``.
-
-    Returns:
-        True si existía una pista con ese path en la biblioteca.
-    """
     cursor = conn.execute(
         "UPDATE tracks SET play_count = play_count + 1, last_played_at = ? " "WHERE path = ?",
         (now_iso(), path),
@@ -327,14 +270,6 @@ def record_play_by_path(conn: sqlite3.Connection, path: str) -> bool:
 
 
 def toggle_favorite(conn: sqlite3.Connection, path: str) -> bool:
-    """Alterna el favorito de la pista con ese ``path``.
-
-    Si la pista aún no está en la biblioteca (música abierta sin escanear)
-    se crea una fila mínima para poder marcarla igualmente.
-
-    Returns:
-        El nuevo estado (True = favorito).
-    """
     row = conn.execute("SELECT is_favorite FROM tracks WHERE path = ?", (path,)).fetchone()
     if row is None:
         upsert_track(conn, Track(path=path), commit=False)
@@ -349,13 +284,11 @@ def toggle_favorite(conn: sqlite3.Connection, path: str) -> bool:
 
 
 def is_favorite(conn: sqlite3.Connection, path: str) -> bool:
-    """True si la pista con ese ``path`` está marcada como favorita."""
     row = conn.execute("SELECT is_favorite FROM tracks WHERE path = ?", (path,)).fetchone()
     return bool(row["is_favorite"]) if row is not None else False
 
 
 def favorite_tracks(conn: sqlite3.Connection, limit: int = 10000) -> list[Track]:
-    """Pistas marcadas como favoritas (vista «Favoritos» del menú Ver)."""
     rows = conn.execute(
         """SELECT * FROM tracks WHERE is_favorite = 1
            ORDER BY artist COLLATE NOCASE, album COLLATE NOCASE,
@@ -367,17 +300,11 @@ def favorite_tracks(conn: sqlite3.Connection, limit: int = 10000) -> list[Track]
 
 
 def _escape_like(term: str) -> str:
-    """Escapa los comodines LIKE para búsqueda literal."""
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 # --------------------------------------------------------------- fachada
 class LibraryDatabase:
-    """Fachada de la biblioteca sobre una conexión propia (hilo principal).
-
-    Args:
-        path: Ruta del .db (por defecto ``<datos>/PyAmp/library.db``).
-    """
 
     def __init__(self, path: str | Path | None = None) -> None:
         self._path = Path(path) if path is not None else DATABASE_FILE
@@ -386,69 +313,51 @@ class LibraryDatabase:
 
     @property
     def path(self) -> str:
-        """Ruta del archivo de base de datos."""
         return str(self._path)
 
     @property
     def connection(self) -> sqlite3.Connection:
-        """Conexión activa (para repositorios de nivel superior)."""
         return self._conn
 
     def close(self) -> None:
-        """Cierra la conexión.
-
-        Ojo: no usar ``with self._conn`` aquí — el ``__exit__`` intentaría
-        hacer commit tras el ``close()`` y lanzaría ``ProgrammingError``.
-        """
         self._conn.close()
 
     # ---------------------------------------------------------- escritura
     def upsert_track(self, track: Track, *, commit: bool = True) -> int:
-        """Inserta/actualiza una pista; devuelve su id."""
         return upsert_track(self._conn, track, commit=commit)
 
     def remove_missing_tracks(self, existing_paths: set[str]) -> int:
-        """Borra pistas cuyo archivo ya no existe; devuelve el total."""
         return remove_missing_tracks(self._conn, existing_paths)
 
     def cleanup_orphan_albums_artists(self) -> tuple[int, int]:
-        """Limpia álbumes/artistas huérfanos; devuelve (álbumes, artistas)."""
         return cleanup_orphan_albums_artists(self._conn)
 
     def record_play_by_path(self, path: str) -> bool:
-        """Registra una reproducción por path (True si la pista existía)."""
         return record_play_by_path(self._conn, path)
 
     def toggle_favorite(self, path: str) -> bool:
-        """Alterna el favorito por path; devuelve el nuevo estado."""
         return toggle_favorite(self._conn, path)
 
     def is_favorite(self, path: str) -> bool:
-        """True si la pista con ese path está marcada como favorita."""
         return is_favorite(self._conn, path)
 
     def favorite_tracks(self, limit: int = 10000) -> list[Track]:
-        """Pistas favoritas ordenadas (vista «Favoritos» del menú Ver)."""
         return favorite_tracks(self._conn, limit)
 
     def track_states(self) -> dict[str, tuple[int | None, int | None]]:
-        """Mapa path → (mtime, size) para el escáner incremental."""
         rows = self._conn.execute("SELECT path, file_mtime, file_size FROM tracks").fetchall()
         return {row["path"]: (row["file_mtime"], row["file_size"]) for row in rows}
 
     # ------------------------------------------------------------- lectura
     def get_track(self, track_id: int) -> Track | None:
-        """Pista por id o None."""
         row = self._conn.execute("SELECT * FROM tracks WHERE id = ?", (track_id,)).fetchone()
         return row_to_track(row) if row is not None else None
 
     def get_track_by_path(self, path: str) -> Track | None:
-        """Pista por path o None."""
         row = self._conn.execute("SELECT * FROM tracks WHERE path = ?", (path,)).fetchone()
         return row_to_track(row) if row is not None else None
 
     def all_tracks(self, limit: int = 10000) -> list[Track]:
-        """Todas las pistas ordenadas por artista/álbum/pista."""
         rows = self._conn.execute(
             """SELECT * FROM tracks
                ORDER BY artist COLLATE NOCASE, album COLLATE NOCASE,
@@ -459,7 +368,6 @@ class LibraryDatabase:
         return [row_to_track(row) for row in rows]
 
     def search_tracks(self, term: str, limit: int = 500) -> list[Track]:
-        """Búsqueda por texto en título, artista o álbum (literal)."""
         cleaned = term.strip()
         if not cleaned:
             return []
@@ -476,7 +384,6 @@ class LibraryDatabase:
         return [row_to_track(row) for row in rows]
 
     def list_artists(self) -> list[Artist]:
-        """Artistas con número de pistas."""
         rows = self._conn.execute("""SELECT a.id, a.name, COUNT(t.id) AS track_count
                FROM artists a
                LEFT JOIN tracks t ON t.artist_id = a.id
@@ -487,13 +394,6 @@ class LibraryDatabase:
         ]
 
     def list_artists_grouped(self) -> list[Artist]:
-        """Artistas **individuales** del árbol (uno por nombre, sin comas).
-
-        Una pista con varios artistas («A, B») cuenta para cada uno, así
-        el árbol muestra «A» y «B» por separado en vez de la cadena con
-        comas. El ``id`` es ``None``: la identidad en el árbol es el
-        nombre (ver :meth:`albums_by_artist_name`).
-        """
         rows = self._conn.execute("""SELECT a.name, COUNT(t.id) AS track_count
                FROM artists a
                LEFT JOIN tracks t ON t.artist_id = a.id
@@ -515,12 +415,6 @@ class LibraryDatabase:
         ]
 
     def artist_ids_by_name(self, name: str) -> list[int]:
-        """Ids de ``artists`` cuyo nombre incluye ese artista individual.
-
-        «Bad Bunny» casa tanto con «Bad Bunny» como con
-        «Bad Bunny, Becky G» (separación por comas, sin distinguir
-        mayúsculas ni acentos de uso).
-        """
         key = str(name).strip().casefold()
         if not key:
             return []
@@ -533,7 +427,6 @@ class LibraryDatabase:
         return artist_ids
 
     def list_albums(self) -> list[Album]:
-        """Álbumes con artista, año, carátula y número de pistas."""
         rows = self._conn.execute("""SELECT al.id, al.title, al.artist_id, ar.name AS artist_name,
                       al.year, al.cover_path, COUNT(t.id) AS track_count
                FROM albums al
@@ -554,9 +447,8 @@ class LibraryDatabase:
             for row in rows
         ]
 
-    # ------------------------------------------- consultas del árbol (Fase 3)
+    # ------------------------------------------------ consultas del árbol
     def albums_by_artist(self, artist_id: int | None) -> list[Album]:
-        """Álbumes con pistas de ese artista (None → pistas sin artista)."""
         if artist_id is None:
             where = "al.artist_id IS NULL"
             params: tuple[object, ...] = ()
@@ -588,12 +480,6 @@ class LibraryDatabase:
         ]
 
     def albums_by_artist_name(self, name: str | None) -> list[Album]:
-        """Álbumes de un artista individual (o sin artista), por título.
-
-        Varias filas de álbum pueden compartir título (p. ej. «Bad Bunny»
-        existe una vez por cada colaboración); aquí se fusionan en un
-        único nodo sumando sus pistas.
-        """
         if name is None:
             rows = self._conn.execute(
                 """SELECT al.title, al.year, al.cover_path, COUNT(t.id) AS track_count
@@ -634,7 +520,6 @@ class LibraryDatabase:
         return sorted(merged.values(), key=lambda album: album.title.casefold())
 
     def tracks_by_artist_name_and_album(self, name: str | None, album_title: str) -> list[Track]:
-        """Pistas de ese álbum (por título) de un artista individual o sin artista."""
         if name is None:
             rows = self._conn.execute(
                 """SELECT t.* FROM tracks t JOIN albums al ON al.id = t.album_id
@@ -656,7 +541,6 @@ class LibraryDatabase:
         return [row_to_track(row) for row in rows]
 
     def tracks_by_album(self, album_id: int) -> list[Track]:
-        """Pistas de un álbum ordenadas por nº de pista."""
         rows = self._conn.execute(
             "SELECT * FROM tracks WHERE album_id = ? " "ORDER BY track_no, title COLLATE NOCASE",
             (album_id,),
@@ -664,7 +548,6 @@ class LibraryDatabase:
         return [row_to_track(row) for row in rows]
 
     def tracks_without_album_by_artist(self, artist_id: int | None) -> list[Track]:
-        """Pistas del artista (None → sin artista) que no tienen álbum."""
         if artist_id is None:
             where = "album_id IS NULL AND artist_id IS NULL"
             params: tuple[object, ...] = ()
@@ -678,7 +561,6 @@ class LibraryDatabase:
         return [row_to_track(row) for row in rows]
 
     def tracks_without_album_by_artist_name(self, name: str | None) -> list[Track]:
-        """Pistas sin álbum de un artista individual (None → sin artista)."""
         if name is None:
             return self.tracks_without_album_by_artist(None)
         artist_ids = self.artist_ids_by_name(name)
@@ -693,14 +575,12 @@ class LibraryDatabase:
         return [row_to_track(row) for row in rows]
 
     def count_tracks_without_artist(self) -> int:
-        """Pistas sin artista asignado (bucket «(Sin artista)» del árbol)."""
         row = self._conn.execute(
             "SELECT COUNT(*) AS n FROM tracks WHERE artist_id IS NULL"
         ).fetchone()
         return int(row["n"]) if row is not None else 0
 
     def stats(self) -> dict[str, int]:
-        """Contadores de la biblioteca (pistas, artistas, álbumes, listas)."""
         result: dict[str, int] = {}
         for key, table in (
             ("tracks", "tracks"),

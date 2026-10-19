@@ -1,16 +1,3 @@
-"""Idiomas de PyAmp (0.1.8): español (original) e inglés.
-
-El código lleva **las dos versiones escritas**: los textos de la interfaz
-están escritos en español —idioma de referencia— y :func:`tr` los traduce al
-inglés con la tabla ``_EN``. En español :func:`tr` devuelve el texto tal cual,
-así que una cadena nueva sin traducir nunca rompe nada: se muestra en español.
-
-El idioma se elige en **Ajustes → General** y se aplica al reiniciar la
-aplicación (la ventana principal reinicia el proceso al aceptar el cambio).
-Aquí no se descarga ni se lee nada externo: las dos versiones viven en este
-fichero.
-"""
-
 from __future__ import annotations
 
 #: Idioma por defecto (y fuente de los textos del programa).
@@ -39,8 +26,8 @@ _EN: dict[str, str] = {
     "&Salir": "&Quit",
     "&Ver": "&View",
     "Canciones (&tabla)": "Songs (&table)",
-    "&Biblioteca (árbol)": "&Library (tree)",
     "F&avoritos (★)": "F&avorites (★)",
+    "&Radio online": "&Online radio",
     "Mostrar es&trograma": "Show s&pectrum",
     "Mostrar &imagen": "Show &image",
     "Ver &letra": "View &lyrics",
@@ -194,8 +181,8 @@ _EN: dict[str, str] = {
         "Press the new combination in each box. Empty = default value."
     ),
     "Ver: Canciones": "View: Songs",
-    "Ver: Biblioteca": "View: Library",
     "Ver: Favoritos": "View: Favorites",
+    "Ver: Radio": "View: Radio",
     "Abrir archivo(s)": "Open file(s)",
     "Guardar playlist": "Save playlist",
     "Ajustes": "Settings",
@@ -203,6 +190,38 @@ _EN: dict[str, str] = {
     "Versión:": "Version:",
     "Notificador:": "Notifier:",
     "Biblioteca:": "Library:",
+    "Idioma": "Language",
+    # ---------------------------------------------------------------- radio
+    "Radio online": "Online radio",
+    "Radio": "Radio",
+    "Emisora": "Station",
+    "Género": "Genre",
+    "País": "Country",
+    "Detener": "Stop",
+    "Añadir": "Add",
+    "Editar": "Edit",
+    "Eliminar": "Remove",
+    "Buscar emisora, género o país...": "Search station, genre or country...",
+    "{shown} de {total} emisoras": "{shown} of {total} stations",
+    "Selecciona una emisora": "Select a station",
+    "Esa emisora ya está en la lista.": "That station is already in the list.",
+    "Solo se pueden editar tus emisoras": "Only your stations can be edited",
+    "Solo se pueden borrar tus emisoras": "Only your stations can be deleted",
+    "¿Eliminar «{name}»?": "Delete “{name}”?",
+    "Reproduciendo {name}": "Playing {name}",
+    "▶ {name} (radio)": "▶ {name} (radio)",
+    "Radio detenida": "Radio stopped",
+    "Emisora de radio": "Radio station",
+    "Nombre:": "Name:",
+    "Dirección (URL):": "Address (URL):",
+    "Género:": "Genre:",
+    "Clásica": "Classical",
+    "Actualidad": "News",
+    "Cultura": "Culture",
+    "EE. UU.": "USA",
+    "Suiza": "Switzerland",
+    "Francia": "France",
+    "España": "Spain",
     # ----------------------------------------------------------------- letra
     "Letra — PyAmp": "Lyrics — PyAmp",
     "Letra no disponible :(": "Lyrics not available :(",
@@ -234,7 +253,6 @@ _EN: dict[str, str] = {
 
 
 def set_language(code: str) -> str:
-    """Fija el idioma activo; un código desconocido vuelve al por defecto."""
     global _LANGUAGE
     key = str(code).strip().lower()
     _LANGUAGE = key if key in LANGUAGES else DEFAULT_LANGUAGE
@@ -242,21 +260,14 @@ def set_language(code: str) -> str:
 
 
 def current_language() -> str:
-    """Código del idioma activo («es» o «en»)."""
     return _LANGUAGE
 
 
 def language_name(code: str) -> str:
-    """Nombre visible del idioma (cae al español si el código no existe)."""
     return LANGUAGES.get(str(code).strip().lower(), LANGUAGES[DEFAULT_LANGUAGE])
 
 
 def tr(text: str) -> str:
-    """Traduce un texto de la interfaz al idioma activo.
-
-    En español devuelve el texto original (el código es la fuente). En
-    inglés busca en la tabla y, si no hay traducción, deja el español.
-    """
     if _LANGUAGE == DEFAULT_LANGUAGE:
         return text
     return _EN.get(text, text)

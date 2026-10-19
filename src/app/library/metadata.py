@@ -1,16 +1,3 @@
-"""Lectura de metadatos con mutagen y extracción de carátulas.
-
-Reglas del proyecto:
-
-* La UI nunca bloquea: la lectura masiva llega en la Fase 2 (QThread).
-  Aquí se lee UNA pista cuando empieza a sonar (milisegundos).
-* Un archivo corrupto **nunca** crashea: se registra y se devuelve una
-  :class:`Track` mínima con el nombre de archivo (la notificación y la UI
-  usan ``display_title`` / ``display_artist``).
-* La carátula extraída se cachea en ``<datos>/covers/`` y su ruta acaba en
-  ``Track.cover_path`` — el Notifier la muestra cuando el backend lo permite.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -47,7 +34,7 @@ AUDIO_EXTENSIONS = frozenset(
 
 
 class MetadataError(Exception):
-    """Error irrecuperable leyendo un archivo de audio (p. ej. no existe)."""
+    pass
 
 
 # --------------------------------------------------------------------- tags
@@ -63,7 +50,6 @@ _DISCNO_KEYS = ("discnumber", "TPOS", "disk")
 
 
 def _stringify(value: Any) -> str | None:
-    """Convierte cualquier valor de tag (frame, lista, tupla, str) a str."""
     if value is None:
         return None
     if isinstance(value, bytes):
@@ -82,7 +68,6 @@ def _stringify(value: Any) -> str | None:
 
 
 def _first_tag(tags: Any, keys: tuple[str, ...]) -> str | None:
-    """Prueba varias grafías de clave hasta dar con un valor no vacío."""
     if not tags:
         return None
     for key in keys:
@@ -97,7 +82,6 @@ def _first_tag(tags: Any, keys: tuple[str, ...]) -> str | None:
 
 
 def _to_int(value: Any) -> int | None:
-    """Extrae un entero de tags como ``"3/12"`` o ``(3, 12)``."""
     text = _stringify(value)
     if text is None:
         return None
@@ -122,13 +106,6 @@ _CODEC_BY_CLASS = {
 
 
 def _codec_name(audio: object) -> str | None:
-    """Códec real detectado por mutagen (clase + cabecera MPEG).
-
-    Para MP3 lee ``version``/``layer`` de la cabecera del primer frame
-    (MPEGInfo): 1 → «MPEG-1 layer 3», 2 → «MPEG-2 layer 3», etc. Para
-    el resto, el nombre según la clase que mutagen identificó. None si
-    no hay dato real (nunca se adivina por la extensión).
-    """
     name = type(audio).__name__
     if name == "MP3":
         info = getattr(audio, "info", None)
@@ -142,18 +119,6 @@ def _codec_name(audio: object) -> str | None:
 
 
 def format_audio_info(track: Track) -> str:
-    """Texto técnico «MPEG-1 layer 3, estéreo, 44 kHz, 128 kbit/s».
-
-    Solo datos **reales** del archivo: códec de la cabecera (mutagen),
-    canales, frecuencia de muestreo y bitrate. Los campos sin
-    información se omiten — nada se adivina.
-
-    Args:
-        track: Pista con los metadatos ya leídos.
-
-    Returns:
-        Cadena separada por comas (vacía si no hay ningún dato real).
-    """
     parts = [track.codec] if track.codec else []
     if track.channels == 1:
         parts.append("mono")
@@ -169,19 +134,6 @@ def format_audio_info(track: Track) -> str:
 
 
 def read_metadata(path: str | Path) -> Track:
-    """Lee los metadatos de un archivo de audio.
-
-    Args:
-        path: Ruta del archivo.
-
-    Returns:
-        Siempre un Track: con etiquetas si el archivo es legible; con solo
-        ``path`` (y ``title=None``, que UI/notificador traducen al nombre
-        del archivo) si el archivo está corrupto o no soportado.
-
-    Raises:
-        MetadataError: Si el archivo no existe.
-    """
     file_path = Path(path).expanduser()
     if not file_path.is_file():
         raise MetadataError(f"Archivo no encontrado: {path}")
@@ -228,22 +180,6 @@ def read_metadata(path: str | Path) -> Track:
 
 # ---------------------------------------------------------------- carátula
 def extract_cover(path: str | Path, dest_dir: str | Path | None = None) -> str | None:
-    """Extrae la carátula incrustada (compatibilidad Fase 1).
-
-    La implementación vive en :mod:`app.library.covers`; aquí se mantiene
-    el alias para no romper los llamantes de la Fase 1 (player y tests),
-    traduciendo ``CoverError`` al ``MetadataError`` histórico.
-
-    Args:
-        path: Archivo de audio.
-        dest_dir: Carpeta destino (por defecto covers/ de la app).
-
-    Returns:
-        Ruta absoluta de la imagen o None si no hay carátula.
-
-    Raises:
-        MetadataError: Si el archivo de audio no existe.
-    """
     try:
         return _extract_cover(path, dest_dir)
     except CoverError as exc:

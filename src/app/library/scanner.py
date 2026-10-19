@@ -1,18 +1,3 @@
-"""Escáner de biblioteca en segundo plano (Fase 2).
-
-Recorre una carpeta buscando audio (``AUDIO_EXTENSIONS``), lee metadatos
-con mutagen y actualiza SQLite. Reglas:
-
-* **UI nunca bloqueada** (RNF): todo el trabajo (walk + mutagen + SQLite)
-  ocurre dentro del ``QThread``; la UI solo escucha señales.
-* **Incremental**: un archivo se relee solo si cambió su ``(mtime, size)``.
-* Los archivos que ya no existen en disco se eliminan de la BD al final
-  (salvo cancelación), y se limpian álbumes/artistas huérfanos.
-* Conexión **propia** creada dentro de ``run()`` (sqlite3 es por hilo); se
-  commitea por lotes para no saturar el disco.
-* Las carátulas se extraen durante el escaneo (``covers.extract_cover``).
-"""
-
 from __future__ import annotations
 
 import contextlib
@@ -40,20 +25,6 @@ BATCH_SIZE = 25
 
 
 class ScannerThread(QThread):
-    """Escanea una carpeta hacia la biblioteca SQLite.
-
-    Señales:
-
-    * ``progress(processed, current_name)`` — avance para la barra de estado.
-    * ``scan_error(message)`` — error no fatal (la carpeta no existe...).
-    * ``scan_finished(summary)`` — SIEMPRE al finalizar; ``summary`` es un
-      dict con ``found/added/updated/skipped/removed/errors/cancelled``.
-
-    Args:
-        db_path: Ruta del archivo .db de la biblioteca.
-        folder: Carpeta a escanear (recursivo).
-        parent: QObject propietario (la ventana).
-    """
 
     progress = Signal(int, str)
     scan_error = Signal(str)
@@ -66,13 +37,11 @@ class ScannerThread(QThread):
         self._cancel_requested = False
 
     def cancel(self) -> None:
-        """Pide detener el escaneo (termina tras el archivo en curso)."""
         logger.info("Escáner: cancelación solicitada")
         self._cancel_requested = True
 
     # ---------------------------------------------------------------- hilo
     def run(self) -> None:
-        """Cuerpo del hilo: recorre, lee y escribe en su propia conexión."""
         summary: dict[str, Any] = {
             "found": 0,
             "added": 0,
@@ -101,7 +70,6 @@ class ScannerThread(QThread):
         self.scan_finished.emit(summary)
 
     def _scan(self, folder: Path, conn: Any, summary: dict[str, Any]) -> None:
-        """Recorre ``folder`` y vuelca el resultado en ``conn``."""
         existing = _track_states(conn)
         seen: set[str] = set()
         processed = 0
@@ -156,13 +124,11 @@ class ScannerThread(QThread):
 
 
 def _track_states(conn: Any) -> dict[str, tuple[int | None, int | None]]:
-    """path → (mtime, size) para decidir lecturas incrementales."""
     rows = conn.execute("SELECT path, file_mtime, file_size FROM tracks").fetchall()
     return {row["path"]: (row["file_mtime"], row["file_size"]) for row in rows}
 
 
 def _read_track(path: Path, resolved: str, mtime: int, size: int) -> Track | None:
-    """Lee metadatos y carátula de un archivo; None si es ilegible."""
     try:
         track = read_metadata(resolved)
         track.file_mtime = mtime

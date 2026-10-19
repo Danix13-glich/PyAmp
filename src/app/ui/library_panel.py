@@ -1,22 +1,3 @@
-"""Panel de biblioteca: árbol Artista → Álbum → Pista + búsqueda (Fase 3).
-
-Reglas del proyecto:
-
-* La UI nunca se bloquea (RNF): las consultas son perezosas —artistas al
-  mostrar, álbumes al expandir artista, pistas al expandir álbum— e
-  indexadas. El escáner (Fase 2) rellena SQLite en su QThread.
-* La UI no habla con SQLite «a su manera»: recibe una
-  :class:`~app.library.database.LibraryDatabase` y solo usa su API.
-
-Señales:
-
-* ``track_activated(track, context_tracks)`` — doble clic o Enter sobre
-  una pista; ``context_tracks`` son los hermanos visibles (el álbum, el
-  bucket «(Sin álbum)» o los resultados de búsqueda).
-* ``selection_changed(selection)`` — :class:`Track`, :class:`Album` o
-  None (la ventana lo usa para la vista previa de carátula).
-"""
-
 from __future__ import annotations
 
 import logging
@@ -59,11 +40,6 @@ ROLE_SELECTION = Qt.ItemDataRole.UserRole + 3  # Track|Album para selection_chan
 
 
 def format_album_label(title: str, year: str | None) -> str:
-    """Título de álbum con el año solo si es un año real.
-
-    La biblioteca guarda años como «0000» cuando la etiqueta no trae fecha;
-    mostrarlos («Álbum (0000)») era ruido sin valor, así que se omiten.
-    """
     text = str(year).strip() if year is not None else ""
     if text.isdigit() and 0 < int(text) <= 9999:
         return f"{title} ({text})"
@@ -71,7 +47,6 @@ def format_album_label(title: str, year: str | None) -> str:
 
 
 class LibraryPanel(QWidget):
-    """Árbol de biblioteca + búsqueda; emite acciones hacia la ventana."""
 
     track_activated = Signal(object, list)
     selection_changed = Signal(object)
@@ -123,11 +98,9 @@ class LibraryPanel(QWidget):
     # ------------------------------------------------------------ API pública
     @property
     def tree(self) -> QTreeWidget:
-        """Vista del árbol (tests y accesibilidad)."""
         return self._tree
 
     def refresh(self) -> None:
-        """Recarga el árbol (o los resultados si hay búsqueda activa)."""
         term = self._search_edit.text().strip()
         self._tree.setUpdatesEnabled(False)
         try:
@@ -142,18 +115,12 @@ class LibraryPanel(QWidget):
         self._update_stats()
 
     def search(self, term: str) -> None:
-        """Aplica un filtro de búsqueda de inmediato (sin debounce)."""
         self._search_timer.stop()
         self._search_edit.setText(term)
         self.refresh()
 
     # ------------------------------------------------------------- poblado
     def _populate_tree(self) -> None:
-        """Nivel superior: artistas (individuales) + «(Sin artista)».
-
-        Un tema con varios artistas («A, B») aparece bajo «A» y bajo «B»:
-        el nodo nunca muestra la cadena con comas.
-        """
         self._tree.clear()
         for artist in self._database.list_artists_grouped():
             item = QTreeWidgetItem([artist.display_name, ""])
@@ -171,13 +138,11 @@ class LibraryPanel(QWidget):
             self._tree.addTopLevelItem(bucket)
 
     def _add_dummy(self, item: QTreeWidgetItem) -> None:
-        """Hijo marcador para cargar los hijos al expandir."""
         dummy = QTreeWidgetItem(item)
         dummy.setDisabled(True)
         dummy.setData(0, ROLE_KIND, "dummy")
 
     def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
-        """Carga perezosa: rellena el nodo si aún tiene el marcador."""
         if item.childCount() != 1:
             return
         child = item.child(0)
@@ -194,7 +159,6 @@ class LibraryPanel(QWidget):
             logger.warning("Biblioteca: fallo al expandir %s: %s", kind, exc)
 
     def _fill_artist(self, item: QTreeWidgetItem) -> None:
-        """Álbumes del artista + bucket «(Sin álbum)» si hay huérfanas."""
         artist_name = item.data(0, ROLE_ID)  # nombre del artista o None (bucket)
         for album in self._database.albums_by_artist_name(artist_name):
             label = format_album_label(album.title, album.year)
@@ -215,7 +179,6 @@ class LibraryPanel(QWidget):
             item.addChild(bucket)
 
     def _fill_album(self, item: QTreeWidgetItem) -> None:
-        """Pistas del álbum (por título) del artista padre."""
         parent = item.parent()
         artist_name = parent.data(0, ROLE_ID) if parent is not None else None
         album_title = str(item.data(0, ROLE_ID))
@@ -225,7 +188,6 @@ class LibraryPanel(QWidget):
     def _add_track_item(
         self, parent: QTreeWidgetItem | None, track: Track, label: str | None = None
     ) -> None:
-        """Nodo de pista: «NN. Título» + duración; el Track va en UserRole."""
         if label is None:
             number = f"{track.track_no}. " if track.track_no else ""
             label = f"{number}{track.display_title}"
@@ -246,7 +208,6 @@ class LibraryPanel(QWidget):
         self._search_timer.start()
 
     def _populate_search(self, term: str) -> None:
-        """Vista plana con los resultados (tope + aviso de truncado)."""
         self._tree.clear()
         results = self._database.search_tracks(term, limit=SEARCH_LIMIT + 1)
         for track in results[:SEARCH_LIMIT]:
@@ -258,7 +219,6 @@ class LibraryPanel(QWidget):
 
     # -------------------------------------------------------------- acciones
     def _on_item_activated(self, item: QTreeWidgetItem, _column: int) -> None:
-        """Enter o doble clic: si es pista, emite con su contexto visible."""
         if item.data(0, ROLE_KIND) != "track":
             return
         track = item.data(0, ROLE_TRACK)
@@ -267,7 +227,6 @@ class LibraryPanel(QWidget):
         self.track_activated.emit(track, self._context_tracks(item))
 
     def _context_tracks(self, item: QTreeWidgetItem) -> list[Track]:
-        """Pistas hermanas visibles (padre = álbum/bucket o raíz en búsqueda)."""
         parent = item.parent()
         container = parent if parent is not None else self._tree.invisibleRootItem()
         tracks: list[Track] = []
@@ -281,7 +240,6 @@ class LibraryPanel(QWidget):
         return tracks
 
     def _on_selection_changed(self) -> None:
-        """Selección → Track/Album/None (la ventana decide la carátula)."""
         items = self._tree.selectedItems()
         if not items:
             self.selection_changed.emit(None)

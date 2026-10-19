@@ -13,6 +13,7 @@ _SRC_DIR = Path(__file__).resolve().parent / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+from PySide6.QtGui import QIcon  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.core.settings import get_settings  # noqa: E402
@@ -25,15 +26,15 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> int:
-    """Crea la aplicación Qt y muestra la ventana principal.
-
-    Returns:
-        Código de salida del proceso (0 = correcto).
-    """
     app = QApplication(sys.argv)
     app.setApplicationName("PyAmp")
     app.setOrganizationName("PyAmp")
     app.setApplicationVersion(__version__)
+    app.setDesktopFileName("pyamp")
+
+    icon_path = Path(__file__).resolve().parent / "assets" / "logo.svg"
+    if icon_path.is_file():
+        app.setWindowIcon(QIcon(str(icon_path)))
 
     # Idioma guardado (Ajustes → General) ANTES de construir la interfaz:
     # las dos versiones de los textos viven en app/i18n.py.

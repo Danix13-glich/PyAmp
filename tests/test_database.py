@@ -1,10 +1,3 @@
-"""Tests de la biblioteca (Fase 2): SQLite, repos de playlists y escáner.
-
-El escáner se ejecuta con ``run()`` de forma síncrona (mismo hilo): las
-señales con conexiones directas se entregan al instante, sin necesidad de
-un event loop.
-"""
-
 from __future__ import annotations
 
 import os
@@ -28,7 +21,6 @@ from app.library.scanner import ScannerThread
 
 @pytest.fixture(scope="module")
 def qapp() -> QApplication:
-    """QApplication única offscreen para las señales de QThread y widgets."""
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
@@ -43,7 +35,6 @@ def db(tmp_path: Path) -> LibraryDatabase:
 
 
 def make_wav(path: Path, *, title: str | None = None, artist: str | None = None) -> Path:
-    """WAV mono PCM válido; opcionalmente etiquetado con ID3."""
     with wave.open(str(path), "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
@@ -105,7 +96,6 @@ def test_upsert_creates_track_and_resolves_artist_album(db: LibraryDatabase) -> 
 
 
 def test_artists_grouped_by_individual_name(db: LibraryDatabase) -> None:
-    """«A, B» cuenta como dos artistas y las pistas se comparten."""
     db.upsert_track(Track(path="/m/a.mp3", title="Solo", artist="Bad Bunny", album="Solo"))
     db.upsert_track(
         Track(path="/m/b.mp3", title="Dueto", artist="Bad Bunny, Becky G", album="Dueto")
@@ -198,14 +188,13 @@ def test_stats(db: LibraryDatabase) -> None:
     assert stats == {"tracks": 1, "artists": 1, "albums": 1, "playlists": 0}
 
 
-# ------------------------------------------------- favoritos (Fase 4 / v2)
+# ------------------------------------------------------------ favoritos
 def test_schema_has_favorite_column(db: LibraryDatabase) -> None:
     columns = {row["name"] for row in db.connection.execute("PRAGMA table_info(tracks)").fetchall()}
     assert "is_favorite" in columns
 
 
 def test_migration_v1_to_v2_adds_favorite_column(tmp_path: Path) -> None:
-    """Una BD en v1 (Fase 3) se migra a v2 al abrirla con la fachada."""
     from app.library.database import _SCHEMA_V1
 
     path = tmp_path / "old.db"
@@ -243,7 +232,6 @@ def test_toggle_favorite_lifecycle(db: LibraryDatabase) -> None:
 
 
 def test_upsert_preserves_favorite(db: LibraryDatabase) -> None:
-    """Re-escanear la misma pista no borra el favorito del usuario."""
     db.upsert_track(Track(path="/m/fav.mp3", title="Fav", artist="Alfa"))
     assert db.toggle_favorite("/m/fav.mp3") is True
 

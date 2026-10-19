@@ -1,18 +1,3 @@
-"""Vista «Canciones»: tabla Nombre | Duración | Artista | ★ (Fase 4).
-
-Muestra el catálogo completo de la biblioteca. Arquitectura Qt estándar:
-``QAbstractTableModel`` + ``QSortFilterProxyModel``, de modo que la
-duración **ordena por milisegundos** (no por texto) y el filtro de
-búsqueda es local al modelo sin tocar la BD — la UI nunca bloquea.
-
-Señales:
-
-* ``track_activated(track, context_tracks)`` — doble clic o Enter sobre
-  una pista; ``context_tracks`` son todas las filas visibles (ese es el
-  contexto que la ventana convierte en playlist).
-* ``favorite_toggled(track)`` — doble clic sobre la columna ★.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -56,20 +41,17 @@ SORT_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 class SongsTableModel(QAbstractTableModel):
-    """Modelo plano de pistas para la tabla Canciones."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._tracks: list[Track] = []
 
     def set_tracks(self, tracks: list[Track]) -> None:
-        """Reemplaza el contenido (refresh tras escanear o toggle ★)."""
         self.beginResetModel()
         self._tracks = list(tracks)
         self.endResetModel()
 
     def track_at(self, row: int) -> Track | None:
-        """Pista en la fila de origen (o None)."""
         if 0 <= row < len(self._tracks):
             return self._tracks[row]
         return None
@@ -126,11 +108,6 @@ class SongsTableModel(QAbstractTableModel):
 
 
 class SongsTable(QWidget):
-    """Tabla del catálogo con buscador, ordenación y columna de favoritos.
-
-    Con ``set_favorites_only(True)`` se convierte en la vista «Favoritos»
-    (menú Ver, Ctrl+3): muestra únicamente las pistas marcadas con ★.
-    """
 
     track_activated = Signal(object, list)
     favorite_toggled = Signal(object)
@@ -202,31 +179,25 @@ class SongsTable(QWidget):
     # ------------------------------------------------------------ API pública
     @property
     def view(self) -> QTableView:
-        """Vista subyacente (tests y accesibilidad)."""
         return self._view
 
     @property
     def proxy(self) -> QSortFilterProxyModel:
-        """Proxy de orden/filtro (tests)."""
         return self._proxy
 
     @property
     def model(self) -> SongsTableModel:
-        """Modelo de origen (tests)."""
         return self._model
 
     @property
     def favorites_only(self) -> bool:
-        """True si la tabla muestra solo las pistas favoritas."""
         return self._favorites_only
 
     def set_favorites_only(self, favorites_only: bool) -> None:
-        """Alterna el modo «solo favoritas» (vista Favoritos, Ctrl+3)."""
         self._favorites_only = bool(favorites_only)
         self.refresh()
 
     def selected_track(self) -> Track | None:
-        """Pista seleccionada en la vista (o None)."""
         index = self._view.currentIndex()
         if not index.isValid():
             return None
@@ -234,7 +205,6 @@ class SongsTable(QWidget):
         return self._model.track_at(source.row())
 
     def refresh(self) -> None:
-        """Recarga el catálogo desde la BD (tras escaneos y favoritos)."""
         try:
             if self._favorites_only:
                 self._model.set_tracks(self._database.favorite_tracks())
@@ -245,7 +215,6 @@ class SongsTable(QWidget):
         self._update_labels()
 
     def search(self, term: str) -> None:
-        """Aplica un filtro de inmediato (sin debounce)."""
         self._search_timer.stop()
         self._search_edit.setText(term)
         self._apply_filter()
@@ -284,7 +253,6 @@ class SongsTable(QWidget):
         )
 
     def _on_activated(self, proxy_index: QModelIndex) -> None:
-        """Doble clic o Enter: ★ alterna favorito; el resto reproduce."""
         if not proxy_index.isValid():
             return
         source_index = self._proxy.mapToSource(proxy_index)
@@ -297,7 +265,6 @@ class SongsTable(QWidget):
         self.track_activated.emit(track, self.visible_tracks())
 
     def visible_tracks(self) -> list[Track]:
-        """Pistas visibles en la vista actual (orden de la tabla)."""
         tracks: list[Track] = []
         for row in range(self._proxy.rowCount()):
             source = self._proxy.mapToSource(self._proxy.index(row, COLUMN_NAME))

@@ -1,22 +1,3 @@
-"""Integración MPRIS v2 (Linux/D-Bus): el sistema reconoce a PyAmp.
-
-Registra ``org.mpris.MediaPlayer2.pyamp`` en el bus de sesión con:
-
-* ``org.mpris.MediaPlayer2``: Identity, DesktopEntry, Raise, Quit.
-* ``org.mpris.MediaPlayer2.Player``: Play/Pause/PlayPause/Stop/Next/
-  Previous/Seek/SetPosition + propiedades PlaybackStatus, Metadata,
-  Volume, Position y la señal Seeked.
-
-Así Plasma/KDE muestra a PyAmp en el reproductor del sistema (volumen
-global y botones de pausa/anterior/siguiente) y las teclas de hardware
-del teclado llegan a la app mientras suena.
-
-Reglas de hilo: el bus corre en un hilo propio con event loop asyncio;
-los updates desde la UI pasan por ``loop.call_soon_threadsafe``. Si el
-entorno no tiene sesión D-Bus (CI u otra plataforma) el adapter falla en
-silencio con un log: la app sigue funcionando sin integración.
-"""
-
 from __future__ import annotations
 
 import asyncio
@@ -55,13 +36,11 @@ _MIME_TYPES = [
 
 
 def track_object_path(track: Track) -> str:
-    """ObjectPath MPRIS único para la pista (válido para D-Bus)."""
     identifier = track.id if track.id is not None else abs(hash(track.path)) % 1_000_000_000
     return f"{_TRACK_ID_PREFIX}{identifier}"
 
 
 class _RootInterface(ServiceInterface):
-    """``org.mpris.MediaPlayer2`` — identidad de la aplicación."""
 
     def __init__(self, adapter: MprisAdapter):
         super().__init__("org.mpris.MediaPlayer2")
@@ -117,7 +96,6 @@ class _RootInterface(ServiceInterface):
 
 
 class _PlayerInterface(ServiceInterface):
-    """``org.mpris.MediaPlayer2.Player`` — control de reproducción."""
 
     def __init__(self, adapter: MprisAdapter):
         super().__init__("org.mpris.MediaPlayer2.Player")
@@ -150,13 +128,11 @@ class _PlayerInterface(ServiceInterface):
 
     @method()
     def Seek(self, offset: "x"):  # noqa: F821 - tipo D-Bus
-        """Desplaza la posición actual (offset en microsegundos)."""
         player = self._adapter.player
         player.seek(player.position_ms() + int(offset) // 1000)
 
     @method()
     def SetPosition(self, track_id: "o", position: "x"):  # noqa: F821
-        """Salta a ``position`` (µs) de la pista ``track_id``."""
         del track_id  # la UI solo tiene una pista en reproducción
         self._adapter.player.seek(int(position) // 1000)
 
@@ -175,7 +151,7 @@ class _PlayerInterface(ServiceInterface):
 
     @LoopStatus.setter
     def LoopStatus(self, value: "s"):  # noqa: F821 - tipo D-Bus
-        return  # sin bucles en PyAmp (Fase 5)
+        return  # sin bucles en PyAmp
 
     @dbus_property(access=PropertyAccess.READ)
     def Rate(self) -> "d":  # noqa: F821 - tipo D-Bus
@@ -187,7 +163,7 @@ class _PlayerInterface(ServiceInterface):
 
     @Shuffle.setter
     def Shuffle(self, value: "b"):  # noqa: F821 - tipo D-Bus
-        return  # sin aleatorio en PyAmp (Fase 5)
+        return  # sin aleatorio en PyAmp
 
     @dbus_property(access=PropertyAccess.READ)
     def Metadata(self) -> "a{sv}":  # noqa: F821 - tipo D-Bus
@@ -243,14 +219,6 @@ class _PlayerInterface(ServiceInterface):
 
 
 class MprisAdapter:
-    """Puente entre el :class:`Player` y el bus D-Bus MPRIS.
-
-    Args:
-        player: Fachada de reproducción (hilo de UI).
-        settings: Ajustes para leer el volumen actual.
-        on_raise: Callback «traer ventana al frente» (desde el bus).
-        on_quit: Callback «salir de la app» (desde el bus).
-    """
 
     def __init__(
         self,
@@ -272,13 +240,11 @@ class MprisAdapter:
 
     # ------------------------------------------------------------ ciclo vida
     def start(self) -> bool:
-        """Conecta al bus y registra el nombre (False si no hay D-Bus)."""
         self._thread = threading.Thread(target=self._run_loop, name="pyamp-mpris", daemon=True)
         self._thread.start()
         return True
 
     def shutdown(self):
-        """Detiene el hilo del bus (idempotente; en closeEvent)."""
         loop = self._loop
         if loop is not None and loop.is_running():
             loop.call_soon_threadsafe(loop.stop)
@@ -310,21 +276,17 @@ class MprisAdapter:
 
     # ------------------------------------------------------- updates (UI)
     def update_playback_status(self):
-        """Emite PlaybackStatus tras un cambio de estado."""
         self._emit_properties_changed(["PlaybackStatus"])
 
     def update_metadata(self, art_path: str = ""):
-        """Emite Metadata (y artUrl si hay carátula) tras cambiar de pista."""
         if art_path:
             self._art_path = art_path
         self._emit_properties_changed(["Metadata"])
 
     def update_volume(self):
-        """Emite Volume tras mover el slider de volumen."""
         self._emit_properties_changed(["Volume"])
 
     def emit_seeked(self, position_ms: int):
-        """Señal Seeked tras un seek (µs)."""
         self._call_in_loop(lambda: self._safe_seeked(int(position_ms) * 1000))
 
     def _emit_properties_changed(self, names: list[str]):
@@ -357,7 +319,6 @@ class MprisAdapter:
     # ------------------------------------------------------------ getters
     @property
     def playback_status(self) -> str:
-        """Estado MPRIS: Playing / Paused / Stopped."""
         state = self.player.state
         if state == STATE_PLAYING:
             return _STATUS_PLAYING
@@ -367,20 +328,16 @@ class MprisAdapter:
 
     @property
     def position_us(self) -> int:
-        """Posición actual en microsegundos."""
         return self.player.position_ms() * 1000
 
     @property
     def volume(self) -> float:
-        """Volumen actual 0.0..1.0."""
         return self._settings.volume / 100.0
 
     def set_volume(self, value: float):
-        """Volumen desde el sistema (0.0..1.0) → player 0..100."""
         self.player.set_volume(max(0, min(100, int(round(value * 100)))))
 
     def metadata(self) -> dict[str, Variant]:
-        """Diccionario MPRIS Metadata de la pista actual."""
         track = self.player.current_track
         if track is None or not track.path:
             return {
@@ -406,11 +363,9 @@ class MprisAdapter:
 
     # ------------------------------------------------------------ callbacks
     def request_raise(self):
-        """Petición Raise desde el sistema (hilo del bus → UI)."""
         if self._on_raise is not None:
             self._on_raise()
 
     def request_quit(self):
-        """Petición Quit desde el sistema (hilo del bus → UI)."""
         if self._on_quit is not None:
             self._on_quit()

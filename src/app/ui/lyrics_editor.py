@@ -1,19 +1,3 @@
-"""Editor de letras de PyAmp (menú Editar, 0.1.6).
-
-Dos modos en un mismo diálogo:
-
-* **Editar** la letra existente de la pista (el ``.lrc`` junto al audio o
-  en la biblioteca de letras): se abre su texto real.
-* **Escribir** una letra nueva para la pista seleccionada: se guarda como
-  ``<nombre-de-la-cancion>.lrc`` en la biblioteca de letras
-  (``<datos>/PyAmp/lyrics/``), que es donde :func:`find_lrc_path` la
-  encuentra después.
-
-Formato aceptado: LRC (``[mm:ss] texto``) o texto plano (una línea por
-frase). El diálogo **no** reproduce música ni toca la BD: solo lee y
-escribe el archivo de letra de la pista que se le pase.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -46,12 +30,6 @@ HINT_TEXT = (
 
 
 def lyrics_target_path(track: Track) -> Path:
-    """Archivo de letra que se editaría/guardaría para la pista.
-
-    Si ya existe un ``.lrc`` (junto al audio o en la biblioteca de
-    letras), se edita ese; si no, se guardará uno nuevo en la biblioteca
-    de letras con el nombre del archivo de la canción.
-    """
     if track.path:
         existing = find_lrc_path(track.path)
         if existing is not None:
@@ -61,11 +39,6 @@ def lyrics_target_path(track: Track) -> Path:
 
 
 class LyricsEditorDialog(QDialog):
-    """Editor de la letra (.lrc) de la pista seleccionada.
-
-    Señal: ``lyrics_saved(path)`` — la ventana puede recargar la letra
-    visible tras guardar.
-    """
 
     lyrics_saved = Signal(str)
 
@@ -114,7 +87,6 @@ class LyricsEditorDialog(QDialog):
         self._load_existing()
 
     def _load_existing(self) -> None:
-        """Precarga el contenido actual del .lrc (si existe)."""
         if not self._target.is_file():
             return
         try:
@@ -126,7 +98,6 @@ class LyricsEditorDialog(QDialog):
             )
 
     def _on_save(self) -> None:
-        """Escribe el texto en el archivo de la pista (creando si hace falta)."""
         try:
             self._target.parent.mkdir(parents=True, exist_ok=True)
             self._target.write_text(self._editor.toPlainText(), encoding="utf-8")
@@ -143,5 +114,4 @@ class LyricsEditorDialog(QDialog):
 
     @property
     def target_path(self) -> Path:
-        """Archivo que se lee/escribe con este diálogo."""
         return self._target

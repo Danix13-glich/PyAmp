@@ -1,12 +1,3 @@
-"""Tests del reproductor (Fase 5): regresión de la posición del backend.
-
-Bug Fase 4: ``VlcBackend.position_ms()`` multiplicaba ``get_position()``
-(frácción 0..1) por 1000 — en archivos largos la barra de posición y el
-temporizador quedaban prácticamente congelados. El fix usa ``get_time()``
-(ms directos); este test comprueba que la posición avanza en milisegundos
-reales.
-"""
-
 from __future__ import annotations
 
 import wave
@@ -26,7 +17,6 @@ SAMPLE_WAIT_MS = 1100
 
 @pytest.fixture(scope="module")
 def qapp() -> QApplication:
-    """QApplication única offscreen (el Player necesita un event loop)."""
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
@@ -34,7 +24,6 @@ def qapp() -> QApplication:
 
 
 def make_wav(path: Path, seconds: int = WAV_SECONDS) -> Path:
-    """WAV mono PCM válido de ``seconds`` segundos (8 kHz)."""
     with wave.open(str(path), "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
@@ -72,7 +61,6 @@ def test_position_advances_in_real_milliseconds(qapp: QApplication, tmp_path: Pa
 
 
 def test_toggle_pause_roundtrip(qapp: QApplication, tmp_path: Path) -> None:
-    """El play unificado (Fase 4) conmuta correctamente con música real."""
     wav = make_wav(tmp_path / "pausa.wav", seconds=2)
     player = Player(settings=get_settings())
     if not player.is_available:
@@ -92,7 +80,6 @@ def test_toggle_pause_roundtrip(qapp: QApplication, tmp_path: Path) -> None:
 
 
 def test_play_merges_real_codec_from_file(qapp: QApplication, tmp_path: Path) -> None:
-    """Al reproducir, el códec real (mutagen) se fusiona en la pista actual."""
     wav = make_wav(tmp_path / "codec-merge.wav", seconds=1)
     player = Player(settings=get_settings())
     if not player.is_available:
@@ -110,7 +97,6 @@ def test_play_merges_real_codec_from_file(qapp: QApplication, tmp_path: Path) ->
 
 # --------------------------------------------- aleatorio y repetir (0.1.6)
 class FakeBackend:
-    """Backend mínimo para probar la lógica de orden sin VLC."""
 
     def __init__(self) -> None:
         self.on_finished = None
@@ -154,11 +140,6 @@ class FakeBackend:
 def _fake_player(
     track_count: int = 5, settings: Settings | None = None
 ) -> tuple[Player, FakeBackend]:
-    """Player con backend falso y ``track_count`` pistas en la playlist.
-
-    El ``settings`` debe ser SIEMPRE una instancia aislada (archivo .conf
-    en tmp): los tests nunca tocan la QSettings real del usuario.
-    """
     from app.core.playlist import PlaylistModel
     from app.library.models import Track
 
@@ -170,19 +151,12 @@ def _fake_player(
 
 
 def _isolated_settings(tmp_path: Path) -> Settings:
-    """QSettings nueva y aislada en un archivo .conf del tmp del test.
-
-    Se usa una ruta explícita (no ``XDG_CONFIG_HOME``): QSettings cachea
-    la ruta de configuración del sistema por proceso, así que cambiar la
-    variable de entorno tras el primer ``QSettings`` no aísla nada.
-    """
     from app.core.settings import Settings
 
     return Settings(tmp_path / "PyAmp-test.conf")
 
 
 def test_shuffle_picks_random_other_index(qapp: QApplication, tmp_path, monkeypatch) -> None:
-    """🔀: siguiente = índice al azar distinto del actual (determinista en test)."""
     settings = _isolated_settings(tmp_path)
     player, _backend = _fake_player(settings=settings)
     try:
@@ -200,7 +174,6 @@ def test_shuffle_picks_random_other_index(qapp: QApplication, tmp_path, monkeypa
 
 
 def test_shuffle_off_uses_sequential_order(qapp: QApplication, tmp_path) -> None:
-    """Sin 🔀 el orden sigue siendo secuencial."""
     settings = _isolated_settings(tmp_path)
     player, _backend = _fake_player(track_count=3, settings=settings)
     try:
@@ -215,7 +188,6 @@ def test_shuffle_off_uses_sequential_order(qapp: QApplication, tmp_path) -> None
 
 
 def test_repeat_wraps_to_first_at_end(qapp: QApplication, tmp_path) -> None:
-    """🔁: en la última pista, «siguiente» vuelve a la primera."""
     settings = _isolated_settings(tmp_path)
     player, _backend = _fake_player(track_count=3, settings=settings)
     try:
@@ -228,7 +200,6 @@ def test_repeat_wraps_to_first_at_end(qapp: QApplication, tmp_path) -> None:
 
 
 def test_shuffle_and_repeat_persist_in_settings(qapp: QApplication, tmp_path) -> None:
-    """🔀 y 🔁 quedan guardados en QSettings (aislado, nunca el real)."""
     settings = _isolated_settings(tmp_path)
     assert settings.shuffle is False and settings.repeat is False
 

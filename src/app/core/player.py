@@ -1,23 +1,3 @@
-"""Fachada del reproductor de PyAmp.
-
-Único punto del programa que orquesta la reproducción. La UI jamás habla
-con VLC: llama a estos métodos y escucha estas señales.
-
-Señales (nombradas en pasado):
-
-* ``track_changed(track)`` — **SEÑAL GLOBAL OBLIGATORIA**: se emite SOLO
-  cuando cambia la pista actual (next, prev, salto en playlist, arranque
-  desde cero tras stop). NUNCA en pausa/reanudación de la misma pista.
-  El Notifier se suscribe a ella: es la única fuente de notificaciones.
-* ``playback_state_changed(state)`` — "playing" | "paused" | "stopped".
-* ``position_changed(ms)`` / ``duration_changed(ms)`` / ``volume_changed(v)``.
-* ``error_occurred(message)`` — errores no fatales (archivo corrupto,
-  libVLC ausente...); la app nunca crashea.
-
-Además reenvía ``track_changed`` al bus global :data:`app_signals` para
-componentes sin referencia directa al player (biblioteca, MPRIS, ...).
-"""
-
 from __future__ import annotations
 
 import logging
@@ -66,13 +46,6 @@ _MERGED_FIELDS = (
 
 
 class Player(QObject):
-    """Fachada de reproducción con señales Qt.
-
-    Args:
-        backend: Backend inyectable (para tests); si es None crea VlcBackend.
-        playlist: Playlist inyectable; si es None crea una vacía.
-        settings: Ajustes inyectables; si es None usa el singleton.
-    """
 
     track_changed = Signal(object)
     playback_state_changed = Signal(str)
@@ -140,33 +113,27 @@ class Player(QObject):
     # ------------------------------------------------------------- propiedades
     @property
     def playlist(self) -> PlaylistModel:
-        """Playlist en memoria compartida con la UI."""
         return self._playlist
 
     @property
     def state(self) -> str:
-        """Estado actual: "playing" | "paused" | "stopped"."""
         return self._state
 
     @property
     def current_track(self) -> Track | None:
-        """Pista actual (None si la playlist está vacía)."""
         return self._playlist.current()
 
     @property
     def is_available(self) -> bool:
-        """True si hay backend de audio operativo."""
         return self._backend is not None
 
     @property
     def backend_error(self) -> str | None:
-        """Mensaje del fallo de backend (None si está operativo)."""
         return self._audio_error_msg
 
     # ------------------------------------------------------- aleatorio/repetir
     @property
     def shuffle(self) -> bool:
-        """True si «siguiente» elige pista al azar (🔀)."""
         return self._shuffle
 
     @shuffle.setter
@@ -176,7 +143,6 @@ class Player(QObject):
 
     @property
     def repeat(self) -> bool:
-        """True si al terminar la playlist se vuelve a la primera (🔁)."""
         return self._repeat
 
     @repeat.setter
@@ -186,34 +152,12 @@ class Player(QObject):
 
     # ------------------------------------------------------------ de reproducción
     def add_paths(self, paths: list[str]) -> list[Track]:
-        """Añade archivos a la playlist (sin reproducir aún).
-
-        Args:
-            paths: Rutas de archivo.
-
-        Returns:
-            Los Track creados (con metadatos perezosos: solo path).
-        """
         tracks = [Track(path=str(Path(p))) for p in paths if p]
         if tracks:
             self._playlist.add_many(tracks)
         return tracks
 
     def replace_playlist(self, tracks: list[Track], start_index: int = 0) -> bool:
-        """Reemplaza la playlist y reproduce ``tracks[start_index]``.
-
-        Lo usa la biblioteca (Fase 3): doble clic → el contexto visible
-        (álbum completo o resultados de búsqueda) pasa a ser la playlist y
-        suena la pista elegida; el auto-avance continúa en ese contexto.
-
-        Args:
-            tracks: Nuevas pistas (pueden venir de la BD, metadatos ya
-                leídos).
-            start_index: Índice a reproducir (recortado al rango válido).
-
-        Returns:
-            True si empezó a reproducir.
-        """
         if not tracks:
             self.error_occurred.emit("replace_playlist: la lista está vacía")
             return False
@@ -222,35 +166,37 @@ class Player(QObject):
         self._playlist.add_many(tracks)
         return self.play_index(index)
 
+    def play_stream(self, url: str, title: str = "", artist: str = "") -> bool:
+        backend = self._backend
+        if backend is None:
+            self._emit_unavailable()
+            return False
+        track = Track(path=str(url), title=title or str(url), artist=artist or None)
+        try:
+            backend.load(str(url))
+            backend.play()
+        except BackendError as exc:
+            logger.error("No se pudo reproducir el flujo %s: %s", url, exc)
+            self.error_occurred.emit(str(exc))
+            return False
+        self._duration = 0
+        self._set_state(STATE_PLAYING)
+        self._timer.start()
+        self.duration_changed.emit(0)
+        self.track_changed.emit(track)
+        self.playback_state_changed.emit(STATE_PLAYING)
+        return True
+
     def load_playlist(self, path: str | Path) -> int:
-        """Reemplaza la playlist con un ``.m3u`` y selecciona la primera pista.
-
-        Returns:
-            Número de pistas cargadas.
-
-        Raises:
-            OSError: Si el archivo no se puede leer.
-        """
         count = self._playlist.load_m3u(path)
         if count:
             self._select_without_playing(0)
         return count
 
     def save_playlist(self, path: str | Path) -> None:
-        """Guarda la playlist como ``.m3u``.
-
-        Raises:
-            OSError: Si no se puede escribir.
-        """
         self._playlist.save_m3u(path)
 
     def play(self) -> None:
-        """Reproduce: reanuda si está en pausa, arranca desde cero si parado.
-
-        El arranque desde cero de la misma pista SÍ emite ``track_changed``
-        (regla del proyecto: "inicio desde cero" notifica); pausar y
-        reanudar NO.
-        """
         if self._backend is None:
             self._emit_unavailable()
             return
@@ -271,7 +217,6 @@ class Player(QObject):
         self.play_index(index)
 
     def pause(self) -> None:
-        """Pausa la reproducción (NO emite ``track_changed``)."""
         if self._backend is None or self._state != STATE_PLAYING:
             return
         self._backend.pause()
@@ -279,7 +224,6 @@ class Player(QObject):
         self._set_state(STATE_PAUSED)
 
     def stop(self) -> None:
-        """Detiene la reproducción y deja el cursor al inicio."""
         if self._backend is not None:
             try:
                 self._backend.stop()
@@ -292,18 +236,12 @@ class Player(QObject):
         self.duration_changed.emit(0)
 
     def toggle_pause(self) -> None:
-        """Conmuta entre pausar y reanudar (para el botón ▶/⏸)."""
         if self._state == STATE_PLAYING:
             self.pause()
         else:
             self.play()
 
     def play_index(self, index: int) -> bool:
-        """Carga y reproduce la pista en ``index`` (emite ``track_changed``).
-
-        Returns:
-            True si empezó a reproducir.
-        """
         track = self._playlist.set_current(index)
         if track is None:
             self.error_occurred.emit(f"Pista fuera de rango: {index}")
@@ -311,10 +249,6 @@ class Player(QObject):
         return self._start_track(track)
 
     def next(self) -> bool:
-        """Salta a la siguiente pista (o al azar si hay aleatorio).
-
-        En la última sin repetición, no hace nada.
-        """
         index = self._advance_index()
         if index is None:
             logger.debug("next: ya estás en la última pista")
@@ -322,7 +256,6 @@ class Player(QObject):
         return self.play_index(index)
 
     def prev(self) -> None:
-        """Pista anterior; si lleva >3 s sonando, reinicia la actual (Winamp)."""
         if self._state == STATE_PLAYING and self.position_ms() > PREV_RESTART_THRESHOLD_MS:
             self.seek(0)
             return
@@ -333,11 +266,6 @@ class Player(QObject):
         self.play_index(index)
 
     def seek(self, position_ms: int) -> None:
-        """Mueve el cursor de reproducción.
-
-        Args:
-            position_ms: Posición en milisegundos.
-        """
         if self._backend is None:
             self._emit_unavailable()
             return
@@ -346,7 +274,6 @@ class Player(QObject):
 
     # ------------------------------------------------------------------ volumen
     def set_volume(self, volume: int) -> None:
-        """Fija el volumen 0..100, lo persiste y emite ``volume_changed``."""
         clamped = max(0, min(100, int(volume)))
         self._settings.volume = clamped
         if self._backend is not None:
@@ -354,42 +281,32 @@ class Player(QObject):
         self.volume_changed.emit(clamped)
 
     def set_muted(self, muted: bool) -> None:
-        """Silencia o restablece el audio y lo persiste."""
         self._settings.muted = bool(muted)
         if self._backend is not None:
             self._backend.set_muted(bool(muted))
 
     def toggle_mute(self) -> bool:
-        """Conmuta el silencio.
-
-        Returns:
-            True si quedó silenciado.
-        """
         target = not self.is_muted()
         self.set_muted(target)
         return target
 
     def is_muted(self) -> bool:
-        """True si el audio está silenciado."""
         if self._backend is None:
             return self._settings.muted
         return self._backend.is_muted()
 
     # ------------------------------------------------------------------ estado
     def position_ms(self) -> int:
-        """Posición actual en milisegundos."""
         if self._backend is None:
             return 0
         return self._backend.position_ms()
 
     def duration_ms(self) -> int:
-        """Duración conocida en milisegundos."""
         if self._backend is None:
             return 0
         return self._backend.duration_ms()
 
     def shutdown(self) -> None:
-        """Para todo y libera el backend (llamar al cerrar la ventana)."""
         self._timer.stop()
         if self._backend is not None:
             self._backend.release()
@@ -399,11 +316,6 @@ class Player(QObject):
 
     # ----------------------------------------------------------------- privadas
     def _start_track(self, track: Track) -> bool:
-        """Carga metadatos, arranca la pista y emite las señales de cambio.
-
-        Returns:
-            True si la reproducción empezó.
-        """
         backend = self._backend
         if backend is None:
             self._emit_unavailable()
@@ -427,12 +339,6 @@ class Player(QObject):
         return True
 
     def _merge_metadata(self, track: Track) -> None:
-        """Completa la pista con metadatos (mutagen) y carátula, sin fallar.
-
-        Los valores del archivo mandan sobre los del .m3u; lo que no esté en
-        el archivo se conserva. Cualquier error se registra y la pista sigue
-        reproducible con el nombre de archivo (RNF: sin crashes).
-        """
         try:
             info = read_metadata(track.path)
         except MetadataError as exc:
@@ -462,7 +368,6 @@ class Player(QObject):
             self.playback_state_changed.emit(state)
 
     def _poll(self) -> None:
-        """Refresa posición/duración mientras suena (timer de UI)."""
         backend = self._backend
         if backend is None or self._state != STATE_PLAYING:
             self._timer.stop()
@@ -474,15 +379,12 @@ class Player(QObject):
             self.duration_changed.emit(duration)
 
     def _on_backend_finished(self) -> None:
-        """Fin de pista detectado (HILO DE VLC): solo emitimos la señal."""
         self._backend_finished.emit()
 
     def _on_backend_error(self, message: str) -> None:
-        """Error de VLC detectado (HILO DE VLC): solo emitimos la señal."""
         self._backend_error.emit(message)
 
     def _schedule_auto_advance(self) -> None:
-        """Avanza a la siguiente pista desde el hilo de UI, con pequeña espera."""
         QTimer.singleShot(AUTO_ADVANCE_DELAY_MS, self._auto_advance)
 
     def _auto_advance(self) -> None:
@@ -494,16 +396,6 @@ class Player(QObject):
         self.play_index(index)
 
     def _advance_index(self) -> int | None:
-        """Índice de la siguiente pista según aleatorio/repetición.
-
-        * Aleatorio (🔀): pista al azar distinta de la actual (nunca la
-          misma salvo playlist de una sola pista con repetición).
-        * Repetición (🔁): al terminar la playlist se vuelve a la primera.
-        * Sin ninguno: secuencial; ``None`` en la última (fin → stop).
-
-        Returns:
-            Índice a reproducir, o None si no hay siguiente.
-        """
         size = len(self._playlist)
         if size == 0:
             return None
@@ -522,7 +414,6 @@ class Player(QObject):
         self.error_occurred.emit(message)
 
     def _select_without_playing(self, index: int) -> None:
-        """Selecciona una pista sin reproducirla (al cargar una playlist)."""
         self._playlist.set_current(index)
 
     def _emit_unavailable(self) -> None:

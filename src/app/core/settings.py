@@ -1,14 +1,3 @@
-"""Persistencia de estado con QSettings.
-
-Ubicación nativa por SO (RNF): Linux ``~/.config/PyAmp/PyAmp.conf``,
-Windows registro/AppData, macOS ``~/Library/Preferences``. Usa el formato
-nativo del SO por comodidad con el gestor de configuración del escritorio.
-
-En la Fase 1 se guardan: volumen, silencio, playlist, pista actual,
-geometría de ventana y las claves de notificaciones (el diálogo de Ajustes
-llega en la Fase 3; aquí las claves ya existen y se respetan).
-"""
-
 from __future__ import annotations
 
 import json
@@ -37,17 +26,18 @@ KEY_THEME = "ui/theme"
 KEY_LANGUAGE = "ui/language"
 KEY_SHORTCUTS = "shortcuts/custom"
 KEY_LIBRARY_FOLDERS = "library/folders"
+KEY_RADIO_STATIONS = "radio/stations"
 
 DEFAULT_VOLUME = 100
 DEFAULT_TIMEOUT_MS = 5000
 MIN_TIMEOUT_MS = 1000
 MAX_TIMEOUT_MS = 60000
 
-#: Vistas posibles del menú Ver (Fase 4; Favoritos añadido en 0.1.6).
+#: Vistas posibles del menú Ver.
 VIEW_CANCIONES = "canciones"
-VIEW_BIBLIOTECA = "biblioteca"
 VIEW_FAVORITOS = "favoritos"
-VIEW_MODES = {VIEW_CANCIONES, VIEW_BIBLIOTECA, VIEW_FAVORITOS}
+VIEW_RADIO = "radio"
+VIEW_MODES = {VIEW_CANCIONES, VIEW_FAVORITOS, VIEW_RADIO}
 DEFAULT_VIEW_MODE = VIEW_CANCIONES
 
 #: Atajos personalizables (Ajustes → Atajos): id → secuencia por defecto.
@@ -59,8 +49,8 @@ SHORTCUT_DEFAULTS: dict[str, str] = {
     "next": "F11",
     "lyrics": "Ctrl+L",
     "view_canciones": "Ctrl+1",
-    "view_biblioteca": "Ctrl+2",
-    "view_favoritos": "Ctrl+3",
+    "view_favoritos": "Ctrl+2",
+    "view_radio": "Ctrl+3",
     "open_files": "Ctrl+O",
     "open_folder": "Ctrl+Shift+O",
     "load_playlist": "Ctrl+Shift+L",
@@ -71,7 +61,6 @@ SHORTCUT_DEFAULTS: dict[str, str] = {
 
 
 def _as_bool(value: Any, default: bool) -> bool:
-    """Convierte valores de QSettings (bool, int, str) a bool de forma segura."""
     if value is None:
         return default
     if isinstance(value, bool):
@@ -88,17 +77,6 @@ def _as_bool(value: Any, default: bool) -> bool:
 
 
 class Settings:
-    """Fachada tipada sobre :class:`QSettings` de PyAmp.
-
-    Args:
-        path: Ruta explícita del archivo ``.conf`` (formato INI). Es la
-            forma **fiable** de aislar en tests: ``QSettings`` cachea la
-            ruta de configuración del sistema por proceso, así que
-            cambiar ``XDG_CONFIG_HOME`` después de crear el primer
-            ``QSettings`` NO aísla nada (ver NOTA_SIGUIENTE_MODELO.md).
-            Si es ``None`` (uso normal), se usa la configuración nativa
-            del SO (``~/.config/PyAmp/PyAmp.conf`` en Linux).
-    """
 
     def __init__(self, path: str | Path | None = None) -> None:
         if path is not None:
@@ -108,26 +86,21 @@ class Settings:
 
     # ------------------------------------------------------------- genérico
     def value(self, key: str, default: Any = None) -> Any:
-        """Lee un valor crudo."""
         return self._settings.value(key, default)
 
     def _raw(self, key: str, default: Any = None) -> Any:
-        """Lectura interna tipada como Any (los stubs de QSettings devuelven object)."""
         return self._settings.value(key, default)
 
     def set_value(self, key: str, value: Any) -> None:
-        """Escribe un valor y sincroniza el disco."""
         self._settings.setValue(key, value)
         self._settings.sync()
 
     def sync(self) -> None:
-        """Fuerza la escritura a disco."""
         self._settings.sync()
 
     # ------------------------------------------------------------- playback
     @property
     def volume(self) -> int:
-        """Volumen 0..100."""
         try:
             value = int(self._raw(KEY_VOLUME, DEFAULT_VOLUME))
         except (TypeError, ValueError):
@@ -140,7 +113,6 @@ class Settings:
 
     @property
     def muted(self) -> bool:
-        """True si el audio estaba silenciado al cerrar."""
         return _as_bool(self._raw(KEY_MUTED, False), False)
 
     @muted.setter
@@ -149,7 +121,6 @@ class Settings:
 
     @property
     def shuffle(self) -> bool:
-        """True si el modo aleatorio estaba activo (🔀)."""
         return _as_bool(self._raw(KEY_SHUFFLE, False), False)
 
     @shuffle.setter
@@ -158,7 +129,6 @@ class Settings:
 
     @property
     def repeat(self) -> bool:
-        """True si la repetición de playlist estaba activa (🔁 = 1)."""
         return _as_bool(self._raw(KEY_REPEAT, False), False)
 
     @repeat.setter
@@ -168,7 +138,6 @@ class Settings:
     # ---------------------------------------------------------- notificaciones
     @property
     def notifications_enabled(self) -> bool:
-        """Ajuste → Notificaciones → activar/desactivar (diálogo en Fase 3)."""
         return _as_bool(self._raw(KEY_NOTIFICATIONS_ENABLED, True), True)
 
     @notifications_enabled.setter
@@ -177,7 +146,6 @@ class Settings:
 
     @property
     def notifications_timeout_ms(self) -> int:
-        """Duración de la notificación en ms (5 s por defecto, 1–60 s)."""
         try:
             value = int(self._raw(KEY_NOTIFICATIONS_TIMEOUT_MS, DEFAULT_TIMEOUT_MS))
         except (TypeError, ValueError):
@@ -193,7 +161,6 @@ class Settings:
     # ------------------------------------------------------------- playlist
     @property
     def playlist_paths(self) -> list[str]:
-        """Rutas de la playlist guardada al cerrar."""
         raw = self._raw(KEY_PLAYLIST_PATHS, [])
         if raw is None:
             return []
@@ -207,7 +174,6 @@ class Settings:
 
     @property
     def playlist_index(self) -> int:
-        """Índice de la pista seleccionada al cerrar."""
         try:
             return max(-1, int(self._raw(KEY_PLAYLIST_INDEX, -1)))
         except (TypeError, ValueError):
@@ -220,7 +186,6 @@ class Settings:
     # --------------------------------------------------------------- ventana
     @property
     def window_geometry(self) -> QByteArray | None:
-        """Geometría de la ventana principal (None la primera vez)."""
         value = self._settings.value(KEY_WINDOW_GEOMETRY)
         if isinstance(value, QByteArray):
             return value
@@ -232,7 +197,6 @@ class Settings:
 
     @property
     def view_mode(self) -> str:
-        """Vista activa del menú Ver: «canciones» (tabla) o «biblioteca»."""
         raw = self._raw(KEY_VIEW_MODE, DEFAULT_VIEW_MODE)
         value = str(raw).strip().lower() if raw is not None else ""
         return value if value in VIEW_MODES else DEFAULT_VIEW_MODE
@@ -244,7 +208,6 @@ class Settings:
 
     @property
     def show_spectrum(self) -> bool:
-        """True si el espectrograma se muestra (menú Ver)."""
         return _as_bool(self._raw(KEY_SHOW_SPECTRUM, True), True)
 
     @show_spectrum.setter
@@ -253,7 +216,6 @@ class Settings:
 
     @property
     def show_cover(self) -> bool:
-        """True si la carátula se muestra en la cabecera (menú Ver)."""
         return _as_bool(self._raw(KEY_SHOW_COVER, True), True)
 
     @show_cover.setter
@@ -262,7 +224,6 @@ class Settings:
 
     @property
     def theme_id(self) -> str:
-        """Id del tema visual (Ajustes → Apariencia / Ver → Temas)."""
         raw = self._raw(KEY_THEME, "")
         return str(raw).strip() if raw is not None else ""
 
@@ -272,11 +233,6 @@ class Settings:
 
     @property
     def language(self) -> str:
-        """Código de idioma de la interfaz («es» o «en»).
-
-        Se elige en Ajustes → General y se aplica al reiniciar la app. Un
-        valor desconocido o vacío cae al idioma por defecto (español).
-        """
         raw = self._raw(KEY_LANGUAGE, DEFAULT_LANGUAGE)
         value = str(raw).strip().lower() if raw is not None else ""
         return value if value in LANGUAGES else DEFAULT_LANGUAGE
@@ -289,11 +245,6 @@ class Settings:
     # ------------------------------------------------------------ biblioteca
     @property
     def library_folders(self) -> list[str]:
-        """Carpetas escaneadas en la biblioteca (raíces recordadas).
-
-        «Refrescar canciones» re-escanea TODAS estas carpetas en orden;
-        se recordará cada carpeta que se escanee con éxito.
-        """
         raw = self._raw(KEY_LIBRARY_FOLDERS, [])
         if raw is None:
             return []
@@ -313,12 +264,6 @@ class Settings:
     # --------------------------------------------------------------- atajos
     @property
     def shortcuts(self) -> dict[str, str]:
-        """Atajos personalizados (id de atajo → secuencia portable).
-
-        Solo se guardan los que difieren de su valor por defecto: un id
-        ausente significa «usa el valor por defecto». Se serializan como
-        JSON en una única clave para que el ``.conf`` siga siendo legible.
-        """
         raw = self._raw(KEY_SHORTCUTS, "")
         if not raw:
             return {}
@@ -335,12 +280,21 @@ class Settings:
         clean = {str(key): str(value) for key, value in mapping.items() if str(key)}
         self.set_value(KEY_SHORTCUTS, json.dumps(clean, ensure_ascii=False, sort_keys=True))
 
+    # ------------------------------------------------------------------ radio
+    @property
+    def radio_stations(self) -> str:
+        raw = self._raw(KEY_RADIO_STATIONS, "")
+        return str(raw) if raw else ""
+
+    @radio_stations.setter
+    def radio_stations(self, value: str) -> None:
+        self.set_value(KEY_RADIO_STATIONS, str(value))
+
 
 _instance: Settings | None = None
 
 
 def get_settings() -> Settings:
-    """Singleton perezoso de :class:`Settings` (tras crear QApplication)."""
     global _instance
     if _instance is None:
         _instance = Settings()

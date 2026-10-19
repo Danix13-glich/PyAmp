@@ -19,5 +19,5 @@ Fixes #
 - [ ] Los tests pasan (`pytest`)
 - [ ] Añadí/actualicé tests si toca
 - [ ] Actualicé documentación si toca
-- [ ] No mezclo cambios de otra fase
+- [ ] No mezclo cambios de otros temas
 - [ ] Sigo Conventional Commits en el título

@@ -1,21 +1,3 @@
-"""Gestor de temas de PyAmp: JSON de colores + QSS generado.
-
-Cada tema es un archivo JSON en ``data/`` con:
-
-* ``name``: nombre visible (Ver → Temas y Ajustes → Apariencia).
-* ``native``: ``true`` = no se aplica QSS global y la app conserva el
-  estilo del sistema (el look de las Fases 0–5); ``false`` = se genera
-  un QSS completo a partir de la paleta del JSON.
-* ``spectrum_hue``: tono HSV de las barras del espectro.
-* ``colors``: paleta (cabecera + app) usada por el QSS y por los
-  widgets de la cabecera.
-
-El gestor **nunca lanza**: un JSON ausente o roto se ignora con log y,
-si faltara el tema por defecto, se reconstruye el look histórico
-(«Winamp oscuro») desde :data:`_FALLBACK_COLORS`, de modo que un tema
-mal escrito no puede tumbar la app.
-"""
-
 from __future__ import annotations
 
 import json
@@ -29,20 +11,20 @@ logger = logging.getLogger(__name__)
 #: Carpeta con los JSON de temas.
 THEMES_DIR = Path(__file__).resolve().parent / "data"
 
-#: Tema que reproduce el look histórico (UI de las Fases 0–5).
+#: Tema que reproduce el look histórico.
 DEFAULT_THEME_ID = "winamp-oscuro"
 
 #: Paleta mínima: reserva para colores ausentes y para el tema de
 #: emergencia si el JSON por defecto desaparece.
 _FALLBACK_COLORS: dict[str, str] = {
-    # cabecera (mismos valores en hardcode en la Fase 5)
+    # cabecera
     "header_bg": "#17171b",
     "header_title": "#f2f2f7",
     "header_label": "#9e9ea6",
     "header_format": "#7e7e88",
     "header_time": "#e8e8ee",
     "text_muted": "#9e9ea6",
-    # espectro (mismos valores en hardcode en la Fase 4)
+    # espectro
     "spectrum_bg": "#181818",
     "spectrum_line": "#464646",
     # iconos de los botones de transporte (contraste con el fondo)
@@ -102,7 +84,6 @@ QToolTip { background-color: $surface_bg; color: $window_text; border: 1px solid
 
 @dataclass(frozen=True)
 class Theme:
-    """Un tema cargado desde su JSON (inmutable)."""
 
     id: str
     name: str
@@ -111,19 +92,16 @@ class Theme:
     colors: dict[str, str]
 
     def color(self, key: str) -> str:
-        """Color de la paleta (reserva al look histórico si falta)."""
         return self.colors.get(key, _FALLBACK_COLORS.get(key, "#000000"))
 
     @property
     def qss(self) -> str:
-        """QSS global del tema (vacío si es «native»: conserva el sistema)."""
         if self.native:
             return ""
         identifiers = set(_QSS_TEMPLATE.get_identifiers())
         return _QSS_TEMPLATE.substitute({key: self.color(key) for key in identifiers})
 
     def header_stylesheet(self) -> str:
-        """Estilos inline de la cabecera (mismas reglas que en Fase 5)."""
         return (
             f"QWidget#headerPanel {{ background-color: {self.color('header_bg')};"
             " border-radius: 6px; }"
@@ -136,7 +114,6 @@ class Theme:
 
 
 def _parse_theme(path: Path) -> Theme:
-    """Carga un tema desde su JSON (ValueError si el formato es malo)."""
     data = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         raise ValueError("el JSON del tema no es un objeto")
@@ -154,7 +131,6 @@ def _parse_theme(path: Path) -> Theme:
 
 
 def _fallback_theme() -> Theme:
-    """Tema de emergencia = look histórico completo por si falta el JSON."""
     return Theme(
         id=DEFAULT_THEME_ID,
         name="Winamp oscuro (actual)",
@@ -165,7 +141,6 @@ def _fallback_theme() -> Theme:
 
 
 def _read_themes() -> dict[str, Theme]:
-    """Lee todos los JSON de ``THEMES_DIR`` (tolerante a archivos rotos)."""
     themes: dict[str, Theme] = {}
     for path in sorted(THEMES_DIR.glob("*.json")):
         try:
@@ -185,7 +160,6 @@ _cache: dict[str, Theme] | None = None
 
 
 def load_themes() -> dict[str, Theme]:
-    """Tema por id (caché en el módulo; copia defensiva del dict)."""
     global _cache
     if _cache is None:
         _cache = _read_themes()
@@ -193,6 +167,5 @@ def load_themes() -> dict[str, Theme]:
 
 
 def get_theme(theme_id: str) -> Theme:
-    """Tema por id; cualquier id desconocido cae en el por defecto."""
     themes = load_themes()
     return themes.get(str(theme_id), themes[DEFAULT_THEME_ID])

@@ -1,10 +1,3 @@
-"""Tests de ``app.library.metadata`` (lectura con mutagen + carátulas).
-
-Los fixtures de audio se generan en el propio test con la stdlib (``wave``)
-más etiquetas ID3 con mutagen: no hay binarios versionados en el repo y los
-tests corren igual en Linux, Windows y macOS.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -31,7 +24,6 @@ TINY_PNG = base64.b64decode(
 
 
 def _make_wav(path: Path, duration_s: float = 0.25, rate: int = 8000) -> Path:
-    """Crea un WAV mono PCM válido (silencio) con la stdlib."""
     with wave.open(str(path), "wb") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
@@ -41,7 +33,6 @@ def _make_wav(path: Path, duration_s: float = 0.25, rate: int = 8000) -> Path:
 
 
 def _tag_wav(path: Path, cover: bytes | None = None) -> Path:
-    """Añade etiquetas ID3 (y opcionalmente carátula) al WAV."""
     audio = WAVE(str(path))
     audio.add_tags()
     assert audio.tags is not None
@@ -60,7 +51,6 @@ def _tag_wav(path: Path, cover: bytes | None = None) -> Path:
 
 
 def test_read_tagged_wav(tmp_path: Path) -> None:
-    """Lee título, artista, álbum, año, números y datos técnicos."""
     path = _tag_wav(_make_wav(tmp_path / "cancion.wav"))
     track = read_metadata(path)
 
@@ -76,7 +66,6 @@ def test_read_tagged_wav(tmp_path: Path) -> None:
 
 
 def test_read_untagged_wav_falls_back_to_filename(tmp_path: Path) -> None:
-    """Sin etiquetas: title=None y display_* usan archivo y 'Artista desconocido'."""
     path = _make_wav(tmp_path / "Mi Cancion Bonita.wav")
     track = read_metadata(path)
 
@@ -88,13 +77,11 @@ def test_read_untagged_wav_falls_back_to_filename(tmp_path: Path) -> None:
 
 
 def test_read_missing_file_raises(tmp_path: Path) -> None:
-    """Archivo inexistente -> MetadataError (los llamantes lo capturan)."""
     with pytest.raises(MetadataError):
         read_metadata(tmp_path / "no-existe.mp3")
 
 
 def test_read_corrupt_file_does_not_crash(tmp_path: Path) -> None:
-    """Archivo corrupto: devuelve Track mínimo en vez de lanzar (RNF)."""
     broken = tmp_path / "roto.mp3"
     broken.write_bytes(b"esto no es un mp3 " * 100)
 
@@ -106,13 +93,11 @@ def test_read_corrupt_file_does_not_crash(tmp_path: Path) -> None:
 
 
 def test_extract_cover_without_image_returns_none(tmp_path: Path) -> None:
-    """Sin carátula incrustada -> None (la notificación va sin imagen)."""
     path = _make_wav(tmp_path / "sin-caratula.wav")
     assert extract_cover(path, dest_dir=tmp_path / "covers") is None
 
 
 def test_extract_cover_returns_cached_file(tmp_path: Path) -> None:
-    """Con carátula (APIC) se extrae a disco y la segunda llamada usa caché."""
     path = _tag_wav(_make_wav(tmp_path / "con-caratula.wav"), cover=TINY_PNG)
     dest = tmp_path / "covers"
 
@@ -126,14 +111,12 @@ def test_extract_cover_returns_cached_file(tmp_path: Path) -> None:
 
 
 def test_extract_cover_missing_file_raises(tmp_path: Path) -> None:
-    """Archivo inexistente al extraer carátula -> MetadataError."""
     with pytest.raises(MetadataError):
         extract_cover(tmp_path / "no-existe.flac", dest_dir=tmp_path / "covers")
 
 
 # ------------------------------------------- códec y texto real (ajustes)
 def test_read_metadata_reports_real_codec(tmp_path: Path) -> None:
-    """El códec viene de mutagen (clase WAVE), nunca de la extensión."""
     path = _tag_wav(_make_wav(tmp_path / "codec-test.wav"))
     track = read_metadata(path)
 
@@ -142,7 +125,6 @@ def test_read_metadata_reports_real_codec(tmp_path: Path) -> None:
 
 
 def test_read_corrupt_file_has_no_codec(tmp_path: Path) -> None:
-    """Archivo ilegible: sin códec inventado (se omite del texto)."""
     broken = tmp_path / "roto-sin-codec.mp3"
     broken.write_bytes(b"esto no es un mp3 " * 100)
 
@@ -153,7 +135,6 @@ def test_read_corrupt_file_has_no_codec(tmp_path: Path) -> None:
 
 
 def test_format_audio_info_builds_from_real_fields(tmp_path: Path) -> None:
-    """«WAV, mono, 8 kHz, 128 kbit/s» solo con datos reales del archivo."""
     path = _tag_wav(_make_wav(tmp_path / "formato-test.wav", rate=8000))
     track = read_metadata(path)
 
@@ -161,7 +142,6 @@ def test_format_audio_info_builds_from_real_fields(tmp_path: Path) -> None:
 
 
 def test_format_audio_info_omits_missing_fields() -> None:
-    """Los campos desconocidos se omiten; nada se rellena por adivinación."""
     assert format_audio_info(Track(path="/x/a.mp3")) == ""
     assert (
         format_audio_info(Track(path="/x/a.mp3", codec="MPEG-1 layer 3", samplerate=44100))

@@ -1,13 +1,3 @@
-"""Extracción y caché de carátulas (Fase 2).
-
-La lógica vivía en ``metadata.py`` (Fase 1); ahora este módulo es la única
-implementación y ``metadata.extract_cover`` delega aquí por compatibilidad.
-
-Caché: imagen extraída a ``<datos>/covers/<sha1-del-path>.<jpg|png>``; si ya
-existe no se vuelve a escribir. La ruta acaba en ``Track.cover_path`` y el
-Notifier la muestra en la notificación cuando existe.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -24,11 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 class CoverError(Exception):
-    """Error irrecuperable extrayendo una carátula (archivo inexistente)."""
+    pass
 
 
 def _cover_bytes(audio: Any) -> tuple[bytes, str] | None:
-    """Localiza la carátula incrustada (ID3/FLAC/MP4/Ogg) y su MIME."""
     tags = audio.tags
     if tags is None:
         return None
@@ -87,21 +76,6 @@ def _cover_bytes(audio: Any) -> tuple[bytes, str] | None:
 
 
 def extract_cover(path: str | Path, dest_dir: str | Path | None = None) -> str | None:
-    """Extrae la carátula incrustada a un archivo cacheado.
-
-    Cache: nombre = sha1(path) + extensión real, en ``<datos>/covers/``.
-    Si ya existe, se devuelve la ruta sin volver a escribir.
-
-    Args:
-        path: Archivo de audio.
-        dest_dir: Carpeta destino (por defecto COVERS_DIR).
-
-    Returns:
-        Ruta absoluta de la imagen o None si no hay carátula.
-
-    Raises:
-        CoverError: Si el archivo de audio no existe.
-    """
     file_path = Path(path).expanduser()
     if not file_path.is_file():
         raise CoverError(f"Archivo no encontrado: {path}")

@@ -1,11 +1,3 @@
-"""Logging rotativo de PyAmp.
-
-Cumple el RNF: logs en la carpeta de datos del SO
-(``~/.local/share/PyAmp/logs/pyamp.log`` en Linux), rotación a 1 MB con
-5 copias de respaldo. La instalación es idempotente: llamar varias veces
-no duplica handlers.
-"""
-
 from __future__ import annotations
 
 import logging
@@ -21,14 +13,6 @@ DATEFMT = "%Y-%m-%d %H:%M:%S"
 
 
 def setup_logging(level: int = logging.INFO) -> str:
-    """Configura el logging de la aplicación (archivo rotativo + consola).
-
-    Args:
-        level: Nivel de logging raíz (por defecto INFO).
-
-    Returns:
-        Ruta absoluta del archivo de log activo.
-    """
     ensure_app_dirs()
     log_file = LOGS_DIR / LOG_FILENAME
 

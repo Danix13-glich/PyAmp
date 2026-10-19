@@ -22,7 +22,7 @@ antes de hacerlo público.
 
 ## Alcance típico
 
-- Código de este repositorio (`src/`, `install.py`, workflows de CI/CD).
+- Código de este repositorio (`src/` y los workflows de CI).
 - Dependencias directas: se reportan aquí y se upstream cuando aplica.
 
 Fuera de alcance (reportar al proyecto correspondiente):
@@ -34,13 +34,5 @@ Fuera de alcance (reportar al proyecto correspondiente):
 PyAmp guarda su configuración en `~/.config/PyAmp/` (Linux),
 `%APPDATA%\PyAmp\` (Windows) o `~/Library/Application Support/PyAmp/`
 (macOS), y datos (BD, logs) en las rutas estándar de datos del SO.
-Ningún dato personal sale de tu equipo salvo:
-- búsquedas de radios en radio-browser.info,
-- búsquedas de letras en lrclib.net.
-
-No se envían telemetría ni analíticas.
-
-## Estado de la licencia
-
-⚠️ La licencia del proyecto está **pendiente de decisión** y se fijará
-antes de la primera release pública (ver README).
+No se envía telemetría ni analíticas. Al reproducir una radio online, el
+reproductor conecta únicamente con la URL de esa emisora.
