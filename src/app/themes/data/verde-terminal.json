@@ -1,0 +1,29 @@
+{
+  "id": "verde-terminal",
+  "name": "Verde terminal",
+  "native": false,
+  "spectrum_hue": 140,
+  "colors": {
+    "header_bg": "#0b120d",
+    "header_title": "#b8ffce",
+    "header_label": "#6fdc8c",
+    "header_format": "#4c9e63",
+    "header_time": "#a9f0bd",
+    "text_muted": "#6fdc8c",
+    "spectrum_bg": "#060a07",
+    "spectrum_line": "#1f4a2c",
+    "icon": "#b8ffce",
+    "window_bg": "#0b120d",
+    "window_text": "#b8ffce",
+    "surface_bg": "#0f1a12",
+    "surface_alt": "#15241a",
+    "border": "#234a2e",
+    "accent": "#2fbf62",
+    "accent_text": "#04140a",
+    "button_bg": "#15241a",
+    "button_hover": "#1d3324",
+    "button_border": "#234a2e",
+    "slider_groove": "#234a2e",
+    "slider_handle": "#7ef2a0"
+  }
+}

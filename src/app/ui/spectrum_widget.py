@@ -9,6 +9,10 @@ movimiento.
 Reglas: la UI nunca bloquea (lectura de audio en hilo propio, el
 repintado es un QTimer de ~30 fps en el hilo de UI) y al cerrar la
 ventana ``shutdown()`` termina el proceso de captura.
+
+Privacidad: ``parec`` solo corre **mientras la música suena** — al pausar,
+detener u ocultar el espectro el proceso se termina, así el escritorio
+(KDE incluido) no muestra el indicador de «app usando el micrófono».
 """
 
 from __future__ import annotations
@@ -53,6 +57,11 @@ SPECTRUM_WIDTH_PX = 120
 #: Tono azul de las barras (HSV: azul-cian según el nivel).
 BAR_HUE = 210
 
+#: Fondo y línea central por defecto (look histórico); el tema activo los
+#: sustituye con ``set_spectrum_colors``.
+DEFAULT_BG = "#181818"
+DEFAULT_LINE = "#464646"
+
 _NO_SIGNAL_TEXT = "Espectro no disponible (se requiere parec/pactl)"
 
 
@@ -68,6 +77,9 @@ class SpectrumWidget(QWidget):
         self._bars = np.zeros(BAR_COUNT, dtype=np.float32)
         self._pending: np.ndarray | None = None
         self._playing = False
+        self._hue = BAR_HUE
+        self._bg_color = QColor(DEFAULT_BG)
+        self._line_color = QColor(DEFAULT_LINE)
         self._process: subprocess.Popen[bytes] | None = None
         self._reader: threading.Thread | None = None
         self._stop_flag = threading.Event()
@@ -87,7 +99,11 @@ class SpectrumWidget(QWidget):
 
     # ------------------------------------------------------------- control
     def set_playing(self, playing: bool) -> None:
-        """Activa o frena la captura según el estado de reproducción."""
+        """Activa o frena la captura según el estado de reproducción.
+
+        Al dejar de sonar se termina ``parec``: el escritorio no debe
+        mostrar el indicador de grabación con la app en pausa o parada.
+        """
         if playing == self._playing:
             return
         self._playing = playing
@@ -96,17 +112,40 @@ class SpectrumWidget(QWidget):
             self._timer.start()
         else:
             self._timer.stop()
+            self.stop_capture()
             self._bars *= DECAY
             self.update()
+
+    def set_hue(self, hue: int) -> None:
+        """Tono HSV de las barras (tema visual)."""
+        self._hue = max(0, min(359, int(hue)))
+        self.update()
+
+    def set_spectrum_colors(self, background: str, line: str) -> None:
+        """Fondo y línea central del espectro según el tema activo.
+
+        Sin esto, el fondo quedaba siempre en el mismo color oscuro y
+        desentonaba con temas claros (arena) o de otro color (verde).
+        """
+        bg = QColor(background)
+        if bg.isValid():
+            self._bg_color = bg
+        line_color = QColor(line)
+        if line_color.isValid():
+            self._line_color = line_color
+        self.update()
 
     @property
     def available(self) -> bool | None:
         """True si hay captura; False si no; None si aún no se probó."""
         return self._available
 
-    def shutdown(self) -> None:
-        """Termina la captura (idempotente; se llama en closeEvent)."""
-        self._timer.stop()
+    def stop_capture(self) -> None:
+        """Termina el proceso de captura sin marcarla como no disponible.
+
+        Se puede volver a llamar a ``set_playing(True)`` después: el
+        proceso se relanza bajo demanda.
+        """
         self._stop_flag.set()
         process = self._process
         if process is not None and process.poll() is None:
@@ -117,6 +156,12 @@ class SpectrumWidget(QWidget):
                 self._reader.join(timeout=1.0)
         self._process = None
         self._reader = None
+        self._pending = None
+
+    def shutdown(self) -> None:
+        """Termina la captura (idempotente; se llama en closeEvent)."""
+        self._timer.stop()
+        self.stop_capture()
 
     # ------------------------------------------------------------- captura
     def _start_capture(self) -> None:
@@ -227,7 +272,7 @@ class SpectrumWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect()
-        painter.fillRect(rect, QColor(24, 24, 24))
+        painter.fillRect(rect, self._bg_color)
         if self._available is False:
             painter.setPen(QColor(150, 150, 150))
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, _NO_SIGNAL_TEXT)
@@ -244,9 +289,9 @@ class SpectrumWidget(QWidget):
             if half <= 0:
                 continue
             x = gap + index * (bar_width + gap)
-            # Azul: tono fijo, más brillante cuanto más fuerte es el nivel.
-            color = QColor.fromHsv(BAR_HUE, 190, 150 + int(105 * float(level)))
+            # Tono del tema, más brillante cuanto más fuerte es el nivel.
+            color = QColor.fromHsv(self._hue, 190, 150 + int(105 * float(level)))
             painter.fillRect(x, mid - half, bar_width, half * 2, color)
-        painter.setPen(QColor(70, 70, 70))
+        painter.setPen(self._line_color)
         painter.drawLine(0, mid, width, mid)  # línea divisoria en la mitad
         painter.end()

@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.i18n import tr
 from app.library.database import LibraryDatabase
 from app.library.models import Track
 from app.utils.time_format import format_time
@@ -48,13 +49,25 @@ SEARCH_LIMIT = 500
 
 NO_ARTIST_LABEL = "(Sin artista)"
 NO_ALBUM_LABEL = "(Sin álbum)"
-SEARCH_TRUNCATED_LABEL = f"(mostrando solo los primeros {SEARCH_LIMIT} resultados)"
+SEARCH_TRUNCATED_LABEL = "(mostrando solo los primeros {limit} resultados)"
 
 #: Roles de datos en los items del árbol.
 ROLE_KIND = Qt.ItemDataRole.UserRole  # "artist" | "album" | "track" | "bucket" | "dummy"
-ROLE_ID = Qt.ItemDataRole.UserRole + 1  # id de artista o álbum
+ROLE_ID = Qt.ItemDataRole.UserRole + 1  # nombre de artista o id de álbum
 ROLE_TRACK = Qt.ItemDataRole.UserRole + 2  # Track (nodos de pista)
 ROLE_SELECTION = Qt.ItemDataRole.UserRole + 3  # Track|Album para selection_changed
+
+
+def format_album_label(title: str, year: str | None) -> str:
+    """Título de álbum con el año solo si es un año real.
+
+    La biblioteca guarda años como «0000» cuando la etiqueta no trae fecha;
+    mostrarlos («Álbum (0000)») era ruido sin valor, así que se omiten.
+    """
+    text = str(year).strip() if year is not None else ""
+    if text.isdigit() and 0 < int(text) <= 9999:
+        return f"{title} ({text})"
+    return title
 
 
 class LibraryPanel(QWidget):
@@ -73,27 +86,27 @@ class LibraryPanel(QWidget):
 
         search_row = QHBoxLayout()
         self._search_edit = QLineEdit()
-        self._search_edit.setPlaceholderText("Buscar título, artista o álbum...")
+        self._search_edit.setPlaceholderText(tr("Buscar título, artista o álbum..."))
         self._search_edit.setClearButtonEnabled(True)
         search_row.addWidget(self._search_edit, stretch=1)
         self._button_refresh = QToolButton()
         self._button_refresh.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
         )
-        self._button_refresh.setToolTip("Refrescar biblioteca")
-        self._button_refresh.setAccessibleName("Refrescar biblioteca")
+        self._button_refresh.setToolTip(tr("Refrescar biblioteca"))
+        self._button_refresh.setAccessibleName(tr("Refrescar biblioteca"))
         search_row.addWidget(self._button_refresh)
         root.addLayout(search_row)
 
         self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["Biblioteca", "Duración"])
+        self._tree.setHeaderLabels([tr("Biblioteca"), tr("Duración")])
         self._tree.setAlternatingRowColors(True)
         self._tree.setColumnWidth(0, 260)
         self._tree.setUniformRowHeights(True)
         root.addWidget(self._tree, stretch=1)
 
         self._stats_label = QLabel("")
-        self._stats_label.setToolTip("Totales de la biblioteca")
+        self._stats_label.setToolTip(tr("Totales de la biblioteca"))
         root.addWidget(self._stats_label)
 
         self._search_timer = QTimer(self)
@@ -136,18 +149,22 @@ class LibraryPanel(QWidget):
 
     # ------------------------------------------------------------- poblado
     def _populate_tree(self) -> None:
-        """Nivel superior: artistas + bucket «(Sin artista)» (perezoso)."""
+        """Nivel superior: artistas (individuales) + «(Sin artista)».
+
+        Un tema con varios artistas («A, B») aparece bajo «A» y bajo «B»:
+        el nodo nunca muestra la cadena con comas.
+        """
         self._tree.clear()
-        for artist in self._database.list_artists():
+        for artist in self._database.list_artists_grouped():
             item = QTreeWidgetItem([artist.display_name, ""])
             item.setData(0, ROLE_KIND, "artist")
-            item.setData(0, ROLE_ID, artist.id)
+            item.setData(0, ROLE_ID, artist.name)
             if artist.track_count:
-                item.setToolTip(0, f"{artist.track_count} pistas")
+                item.setToolTip(0, tr("{count} pistas").format(count=artist.track_count))
             self._add_dummy(item)
             self._tree.addTopLevelItem(item)
         if self._database.count_tracks_without_artist() > 0:
-            bucket = QTreeWidgetItem([NO_ARTIST_LABEL, ""])
+            bucket = QTreeWidgetItem([tr(NO_ARTIST_LABEL), ""])
             bucket.setData(0, ROLE_KIND, "artist")
             bucket.setData(0, ROLE_ID, None)
             self._add_dummy(bucket)
@@ -178,31 +195,31 @@ class LibraryPanel(QWidget):
 
     def _fill_artist(self, item: QTreeWidgetItem) -> None:
         """Álbumes del artista + bucket «(Sin álbum)» si hay huérfanas."""
-        artist_id = item.data(0, ROLE_ID)
-        for album in self._database.albums_by_artist(artist_id):
-            label = album.title
-            if album.year:
-                label = f"{album.title} ({album.year})"
+        artist_name = item.data(0, ROLE_ID)  # nombre del artista o None (bucket)
+        for album in self._database.albums_by_artist_name(artist_name):
+            label = format_album_label(album.title, album.year)
             album_item = QTreeWidgetItem([label, ""])
             album_item.setData(0, ROLE_KIND, "album")
-            album_item.setData(0, ROLE_ID, album.id)
+            album_item.setData(0, ROLE_ID, album.title)
             album_item.setData(0, ROLE_SELECTION, album)
             if album.track_count:
-                album_item.setToolTip(0, f"{album.track_count} pistas")
+                album_item.setToolTip(0, tr("{count} pistas").format(count=album.track_count))
             self._add_dummy(album_item)
             item.addChild(album_item)
-        orphans = self._database.tracks_without_album_by_artist(artist_id)
+        orphans = self._database.tracks_without_album_by_artist_name(artist_name)
         if orphans:
-            bucket = QTreeWidgetItem([NO_ALBUM_LABEL, ""])
+            bucket = QTreeWidgetItem([tr(NO_ALBUM_LABEL), ""])
             bucket.setData(0, ROLE_KIND, "bucket")
             for track in orphans:
                 self._add_track_item(bucket, track)
             item.addChild(bucket)
 
     def _fill_album(self, item: QTreeWidgetItem) -> None:
-        """Pistas del álbum (ya con metadatos de la BD)."""
-        album_id = item.data(0, ROLE_ID)
-        for track in self._database.tracks_by_album(album_id):
+        """Pistas del álbum (por título) del artista padre."""
+        parent = item.parent()
+        artist_name = parent.data(0, ROLE_ID) if parent is not None else None
+        album_title = str(item.data(0, ROLE_ID))
+        for track in self._database.tracks_by_artist_name_and_album(artist_name, album_title):
             self._add_track_item(item, track)
 
     def _add_track_item(
@@ -235,7 +252,7 @@ class LibraryPanel(QWidget):
         for track in results[:SEARCH_LIMIT]:
             self._add_track_item(None, track, label=track.display_name)
         if len(results) > SEARCH_LIMIT:
-            info = QTreeWidgetItem([SEARCH_TRUNCATED_LABEL, ""])
+            info = QTreeWidgetItem([tr(SEARCH_TRUNCATED_LABEL).format(limit=SEARCH_LIMIT), ""])
             info.setDisabled(True)
             self._tree.addTopLevelItem(info)
 
@@ -274,6 +291,7 @@ class LibraryPanel(QWidget):
     def _update_stats(self) -> None:
         stats = self._database.stats()
         self._stats_label.setText(
-            f"{stats['tracks']} pistas · {stats['artists']} artistas"
-            f" · {stats['albums']} álbumes"
+            tr("{tracks} pistas · {artists} artistas · {albums} álbumes").format(
+                tracks=stats["tracks"], artists=stats["artists"], albums=stats["albums"]
+            )
         )

@@ -354,6 +354,18 @@ def is_favorite(conn: sqlite3.Connection, path: str) -> bool:
     return bool(row["is_favorite"]) if row is not None else False
 
 
+def favorite_tracks(conn: sqlite3.Connection, limit: int = 10000) -> list[Track]:
+    """Pistas marcadas como favoritas (vista «Favoritos» del menú Ver)."""
+    rows = conn.execute(
+        """SELECT * FROM tracks WHERE is_favorite = 1
+           ORDER BY artist COLLATE NOCASE, album COLLATE NOCASE,
+                    track_no, title COLLATE NOCASE
+           LIMIT ?""",
+        (limit,),
+    ).fetchall()
+    return [row_to_track(row) for row in rows]
+
+
 def _escape_like(term: str) -> str:
     """Escapa los comodines LIKE para búsqueda literal."""
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -415,6 +427,10 @@ class LibraryDatabase:
         """True si la pista con ese path está marcada como favorita."""
         return is_favorite(self._conn, path)
 
+    def favorite_tracks(self, limit: int = 10000) -> list[Track]:
+        """Pistas favoritas ordenadas (vista «Favoritos» del menú Ver)."""
+        return favorite_tracks(self._conn, limit)
+
     def track_states(self) -> dict[str, tuple[int | None, int | None]]:
         """Mapa path → (mtime, size) para el escáner incremental."""
         rows = self._conn.execute("SELECT path, file_mtime, file_size FROM tracks").fetchall()
@@ -469,6 +485,52 @@ class LibraryDatabase:
         return [
             Artist(id=row["id"], name=row["name"], track_count=row["track_count"]) for row in rows
         ]
+
+    def list_artists_grouped(self) -> list[Artist]:
+        """Artistas **individuales** del árbol (uno por nombre, sin comas).
+
+        Una pista con varios artistas («A, B») cuenta para cada uno, así
+        el árbol muestra «A» y «B» por separado en vez de la cadena con
+        comas. El ``id`` es ``None``: la identidad en el árbol es el
+        nombre (ver :meth:`albums_by_artist_name`).
+        """
+        rows = self._conn.execute("""SELECT a.name, COUNT(t.id) AS track_count
+               FROM artists a
+               LEFT JOIN tracks t ON t.artist_id = a.id
+               GROUP BY a.id""").fetchall()
+        names: dict[str, str] = {}
+        counts: dict[str, int] = {}
+        for row in rows:
+            count = int(row["track_count"])
+            for part in str(row["name"]).split(","):
+                token = part.strip()
+                if not token:
+                    continue
+                key = token.casefold()
+                names.setdefault(key, token)
+                counts[key] = counts.get(key, 0) + count
+        return [
+            Artist(id=None, name=names[key], track_count=counts[key])
+            for key in sorted(names, key=lambda key: names[key].casefold())
+        ]
+
+    def artist_ids_by_name(self, name: str) -> list[int]:
+        """Ids de ``artists`` cuyo nombre incluye ese artista individual.
+
+        «Bad Bunny» casa tanto con «Bad Bunny» como con
+        «Bad Bunny, Becky G» (separación por comas, sin distinguir
+        mayúsculas ni acentos de uso).
+        """
+        key = str(name).strip().casefold()
+        if not key:
+            return []
+        rows = self._conn.execute("SELECT id, name FROM artists").fetchall()
+        artist_ids: list[int] = []
+        for row in rows:
+            tokens = [part.strip().casefold() for part in str(row["name"]).split(",")]
+            if key in tokens:
+                artist_ids.append(int(row["id"]))
+        return artist_ids
 
     def list_albums(self) -> list[Album]:
         """Álbumes con artista, año, carátula y número de pistas."""
@@ -525,6 +587,74 @@ class LibraryDatabase:
             for row in rows
         ]
 
+    def albums_by_artist_name(self, name: str | None) -> list[Album]:
+        """Álbumes de un artista individual (o sin artista), por título.
+
+        Varias filas de álbum pueden compartir título (p. ej. «Bad Bunny»
+        existe una vez por cada colaboración); aquí se fusionan en un
+        único nodo sumando sus pistas.
+        """
+        if name is None:
+            rows = self._conn.execute(
+                """SELECT al.title, al.year, al.cover_path, COUNT(t.id) AS track_count
+                   FROM albums al
+                   LEFT JOIN tracks t ON t.album_id = al.id
+                   WHERE al.artist_id IS NULL
+                   GROUP BY al.id"""
+            ).fetchall()
+        else:
+            artist_ids = self.artist_ids_by_name(name)
+            if not artist_ids:
+                return []
+            placeholders = ",".join("?" * len(artist_ids))
+            rows = self._conn.execute(
+                f"""SELECT al.title, al.year, al.cover_path, COUNT(t.id) AS track_count
+                    FROM albums al
+                    LEFT JOIN tracks t ON t.album_id = al.id
+                    WHERE al.artist_id IN ({placeholders})
+                    GROUP BY al.id""",
+                tuple(artist_ids),
+            ).fetchall()
+        merged: dict[str, Album] = {}
+        for row in rows:
+            title = str(row["title"])
+            key = title.casefold()
+            count = int(row["track_count"])
+            album = merged.get(key)
+            if album is None:
+                merged[key] = Album(
+                    title=title,
+                    artist_name=name,
+                    year=row["year"],
+                    cover_path=row["cover_path"],
+                    track_count=count,
+                )
+            else:
+                album.track_count += count
+        return sorted(merged.values(), key=lambda album: album.title.casefold())
+
+    def tracks_by_artist_name_and_album(self, name: str | None, album_title: str) -> list[Track]:
+        """Pistas de ese álbum (por título) de un artista individual o sin artista."""
+        if name is None:
+            rows = self._conn.execute(
+                """SELECT t.* FROM tracks t JOIN albums al ON al.id = t.album_id
+                   WHERE t.artist_id IS NULL AND al.title = ? COLLATE NOCASE
+                   ORDER BY t.track_no, t.title COLLATE NOCASE""",
+                (album_title,),
+            ).fetchall()
+        else:
+            artist_ids = self.artist_ids_by_name(name)
+            if not artist_ids:
+                return []
+            placeholders = ",".join("?" * len(artist_ids))
+            rows = self._conn.execute(
+                f"""SELECT t.* FROM tracks t JOIN albums al ON al.id = t.album_id
+                    WHERE t.artist_id IN ({placeholders}) AND al.title = ? COLLATE NOCASE
+                    ORDER BY t.track_no, t.title COLLATE NOCASE""",
+                (*artist_ids, album_title),
+            ).fetchall()
+        return [row_to_track(row) for row in rows]
+
     def tracks_by_album(self, album_id: int) -> list[Track]:
         """Pistas de un álbum ordenadas por nº de pista."""
         rows = self._conn.execute(
@@ -544,6 +674,21 @@ class LibraryDatabase:
         rows = self._conn.execute(
             f"SELECT * FROM tracks WHERE {where} ORDER BY title COLLATE NOCASE",
             params,
+        ).fetchall()
+        return [row_to_track(row) for row in rows]
+
+    def tracks_without_album_by_artist_name(self, name: str | None) -> list[Track]:
+        """Pistas sin álbum de un artista individual (None → sin artista)."""
+        if name is None:
+            return self.tracks_without_album_by_artist(None)
+        artist_ids = self.artist_ids_by_name(name)
+        if not artist_ids:
+            return []
+        placeholders = ",".join("?" * len(artist_ids))
+        rows = self._conn.execute(
+            "SELECT * FROM tracks WHERE album_id IS NULL"
+            f" AND artist_id IN ({placeholders}) ORDER BY title COLLATE NOCASE",
+            tuple(artist_ids),
         ).fetchall()
         return [row_to_track(row) for row in rows]
 

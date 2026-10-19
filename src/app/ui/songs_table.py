@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.i18n import tr
 from app.library.database import LibraryDatabase
 from app.library.models import Track
 from app.utils.time_format import format_time
@@ -92,7 +93,7 @@ class SongsTableModel(QAbstractTableModel):
             and role == Qt.ItemDataRole.DisplayRole
             and 0 <= section < len(HEADERS)
         ):
-            return HEADERS[section]
+            return tr(HEADERS[section])
         return None
 
     def data(  # noqa: N802
@@ -125,14 +126,21 @@ class SongsTableModel(QAbstractTableModel):
 
 
 class SongsTable(QWidget):
-    """Tabla del catálogo con buscador, ordenación y columna de favoritos."""
+    """Tabla del catálogo con buscador, ordenación y columna de favoritos.
+
+    Con ``set_favorites_only(True)`` se convierte en la vista «Favoritos»
+    (menú Ver, Ctrl+3): muestra únicamente las pistas marcadas con ★.
+    """
 
     track_activated = Signal(object, list)
     favorite_toggled = Signal(object)
+    #: El botón de refresco pide re-escanear (la ventana decide cómo).
+    refresh_requested = Signal()
 
     def __init__(self, database: LibraryDatabase, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._database = database
+        self._favorites_only = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -140,15 +148,15 @@ class SongsTable(QWidget):
 
         search_row = QHBoxLayout()
         self._search_edit = QLineEdit()
-        self._search_edit.setPlaceholderText("Buscar nombre, artista o álbum...")
+        self._search_edit.setPlaceholderText(tr("Buscar nombre, artista o álbum..."))
         self._search_edit.setClearButtonEnabled(True)
         search_row.addWidget(self._search_edit, stretch=1)
         self._button_refresh = QToolButton()
         self._button_refresh.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
         )
-        self._button_refresh.setToolTip("Refrescar canciones")
-        self._button_refresh.setAccessibleName("Refrescar canciones")
+        self._button_refresh.setToolTip(tr("Refrescar canciones"))
+        self._button_refresh.setAccessibleName(tr("Refrescar canciones"))
         search_row.addWidget(self._button_refresh)
         root.addLayout(search_row)
 
@@ -179,7 +187,7 @@ class SongsTable(QWidget):
         root.addWidget(self._empty_label)
 
         self._stats_label = QLabel("")
-        self._stats_label.setToolTip("Catálogo cargado")
+        self._stats_label.setToolTip(tr("Catálogo cargado"))
         root.addWidget(self._stats_label)
 
         self._search_timer = QTimer(self)
@@ -188,7 +196,7 @@ class SongsTable(QWidget):
         self._search_timer.timeout.connect(self._apply_filter)
 
         self._search_edit.textChanged.connect(self._on_search_text_changed)
-        self._button_refresh.clicked.connect(self.refresh)
+        self._button_refresh.clicked.connect(self.refresh_requested.emit)
         self._view.activated.connect(self._on_activated)
 
     # ------------------------------------------------------------ API pública
@@ -207,10 +215,31 @@ class SongsTable(QWidget):
         """Modelo de origen (tests)."""
         return self._model
 
+    @property
+    def favorites_only(self) -> bool:
+        """True si la tabla muestra solo las pistas favoritas."""
+        return self._favorites_only
+
+    def set_favorites_only(self, favorites_only: bool) -> None:
+        """Alterna el modo «solo favoritas» (vista Favoritos, Ctrl+3)."""
+        self._favorites_only = bool(favorites_only)
+        self.refresh()
+
+    def selected_track(self) -> Track | None:
+        """Pista seleccionada en la vista (o None)."""
+        index = self._view.currentIndex()
+        if not index.isValid():
+            return None
+        source = self._proxy.mapToSource(index)
+        return self._model.track_at(source.row())
+
     def refresh(self) -> None:
         """Recarga el catálogo desde la BD (tras escaneos y favoritos)."""
         try:
-            self._model.set_tracks(self._database.all_tracks())
+            if self._favorites_only:
+                self._model.set_tracks(self._database.favorite_tracks())
+            else:
+                self._model.set_tracks(self._database.all_tracks())
         except Exception as exc:  # noqa: BLE001 - una consulta no tumbará la UI
             logger.warning("Canciones: fallo al recargar: %s", exc)
         self._update_labels()
@@ -236,15 +265,23 @@ class SongsTable(QWidget):
         term = self._search_edit.text().strip()
         if visible == 0:
             if term:
-                self._empty_label.setText(f"Sin resultados para «{term}»")
+                self._empty_label.setText(tr("Sin resultados para «{term}»").format(term=term))
+            elif self._favorites_only:
+                self._empty_label.setText(
+                    tr("Aún no hay favoritas — marca ★ en la vista Canciones")
+                )
             else:
                 self._empty_label.setText(
-                    "Biblioteca vacía — «Archivo → Escanear carpeta en biblioteca...»"
+                    tr("Biblioteca vacía — «Archivo → Escanear carpeta en biblioteca...»")
                 )
             self._empty_label.show()
         else:
             self._empty_label.hide()
-        self._stats_label.setText(f"{visible} de {total} canciones · {favorites} favoritas")
+        self._stats_label.setText(
+            tr("{visible} de {total} canciones · {favorites} favoritas").format(
+                visible=visible, total=total, favorites=favorites
+            )
+        )
 
     def _on_activated(self, proxy_index: QModelIndex) -> None:
         """Doble clic o Enter: ★ alterna favorito; el resto reproduce."""

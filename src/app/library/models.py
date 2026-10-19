@@ -16,6 +16,8 @@ from pathlib import Path
 
 # Literales de presentación. Notifier mantiene su propia copia (formato de
 # notificación autocontenido en Fase 0); si cambian, cambiarlos en ambos.
+from app.i18n import tr
+
 UNKNOWN_ARTIST_TEXT = "Artista desconocido"
 UNKNOWN_TITLE_TEXT = "Sin título"
 
@@ -71,14 +73,14 @@ class Track:
         """Título para mostrar: etiqueta real o, en su defecto, el archivo."""
         if self.title:
             return str(self.title)
-        return self.filename_stem or UNKNOWN_TITLE_TEXT
+        return self.filename_stem or tr(UNKNOWN_TITLE_TEXT)
 
     @property
     def display_artist(self) -> str:
         """Artista para mostrar o 'Artista desconocido'."""
         if self.artist and str(self.artist).strip():
             return str(self.artist)
-        return UNKNOWN_ARTIST_TEXT
+        return tr(UNKNOWN_ARTIST_TEXT)
 
     @property
     def display_name(self) -> str:
@@ -99,7 +101,7 @@ class Artist:
         """Nombre o 'Artista desconocido'."""
         if self.name and self.name.strip():
             return self.name
-        return UNKNOWN_ARTIST_TEXT
+        return tr(UNKNOWN_ARTIST_TEXT)
 
 
 @dataclass

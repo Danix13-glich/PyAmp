@@ -115,6 +115,39 @@ def test_refresh_populates_artists_and_bucket(panel: LibraryPanel) -> None:
     assert "3 pistas" in panel._stats_label.text()  # noqa: SLF001 - tests
 
 
+def test_duet_artist_splits_into_individual_artists(qapp: QApplication, tmp_path: Path) -> None:
+    """«A, B» no es un nodo: el tema aparece bajo «A» y bajo «B»."""
+    database = LibraryDatabase(tmp_path / "dueto.db")
+    try:
+        database.upsert_track(
+            Track(path=str(tmp_path / "solo.wav"), title="Solo", artist="Bad Bunny", album="Solo")
+        )
+        database.upsert_track(
+            Track(
+                path=str(tmp_path / "dueto.wav"),
+                title="Dueto",
+                artist="Bad Bunny, Becky G",
+                album="Dueto",
+            )
+        )
+        panel = LibraryPanel(database)
+        panel.refresh()
+
+        bad = _top_item(panel, "Bad Bunny")
+        _top_item(panel, "Becky G")  # el colaborador es su propio artista
+        top_texts = [
+            panel.tree.topLevelItem(index).text(0)
+            for index in range(panel.tree.topLevelItemCount())
+        ]
+        assert "Bad Bunny, Becky G" not in top_texts
+
+        bad.setExpanded(True)
+        child_texts = [bad.child(index).text(0) for index in range(bad.childCount())]
+        assert "Solo" in child_texts and "Dueto" in child_texts
+    finally:
+        database.close()
+
+
 def test_artist_is_lazy_until_expanded(panel: LibraryPanel) -> None:
     artist = _top_item(panel, "Alfa")
     # Antes de expandir: solo el marcador perezoso.
@@ -367,12 +400,9 @@ def test_settings_dialog_reads_settings_and_emits_apply(qapp: QApplication) -> N
 
 
 # ------------------------------------------- atajos personalizables (ajustes)
-def test_settings_shortcuts_roundtrip_isolated(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_settings_shortcuts_roundtrip_isolated(tmp_path: Path) -> None:
     """Settings.shortcuts: JSON en QSettings aislado (nunca el real del usuario)."""
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    settings = Settings()
+    settings = Settings(tmp_path / "PyAmp-test.conf")
 
     assert settings.shortcuts == {}  # sin personalización: vacío
 
@@ -383,24 +413,18 @@ def test_settings_shortcuts_roundtrip_isolated(
     assert settings.shortcuts == {}
 
 
-def test_settings_shortcuts_ignores_corrupt_json(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_settings_shortcuts_ignores_corrupt_json(tmp_path: Path) -> None:
     """JSON corrupto en la clave -> {} (nunca excepción al arrancar)."""
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
-    settings = Settings()
+    settings = Settings(tmp_path / "PyAmp-test.conf")
     settings.set_value("shortcuts/custom", "{no es json")
 
     assert settings.shortcuts == {}
 
 
-def test_settings_dialog_shortcut_edits_match_catalog(
-    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_settings_dialog_shortcut_edits_match_catalog(qapp: QApplication, tmp_path: Path) -> None:
     """Una fila de QKeySequenceEdit por cada ID del catálogo, con el default."""
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     dialog = SettingsDialog(
-        Settings(),
+        Settings(tmp_path / "PyAmp-test.conf"),
         notifier_backend="test-backend",
         version="0.1.0",
     )
@@ -410,13 +434,10 @@ def test_settings_dialog_shortcut_edits_match_catalog(
     assert edit.keySequence().toString() == SHORTCUT_DEFAULTS["next"]
 
 
-def test_settings_dialog_collects_only_custom_shortcuts(
-    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_settings_dialog_collects_only_custom_shortcuts(qapp: QApplication, tmp_path: Path) -> None:
     """apply_shortcuts emite solo las secuencias rellenadas (no vacías)."""
-    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     dialog = SettingsDialog(
-        Settings(),
+        Settings(tmp_path / "PyAmp-test.conf"),
         notifier_backend="test-backend",
         version="0.1.0",
     )
@@ -555,3 +576,206 @@ def test_lyrics_window_hides_placeholder_when_lrc_exists(
 
     assert window.entries == [(5000, "Hola")]
     assert not window.showing_placeholder  # hay letra: la lista se ve, sin aviso
+
+
+# ------------------------------------------------------- temas (0.1.6)
+def test_themes_load_three_including_current() -> None:
+    """Hay 3 temas (incluido el actual Winamp oscuro) con QSS correcto."""
+    from app.themes import DEFAULT_THEME_ID, get_theme, load_themes
+
+    themes = load_themes()
+    assert len(themes) == 3
+    assert DEFAULT_THEME_ID in themes
+
+    current = get_theme(DEFAULT_THEME_ID)
+    assert current.native  # el look histórico = estilo del sistema
+    assert current.qss == ""
+
+    for theme_id in ("verde-terminal", "arena-clara"):
+        theme = get_theme(theme_id)
+        assert not theme.native
+        assert "QMainWindow" in theme.qss
+        assert theme.spectrum_hue >= 0
+
+
+def test_get_theme_unknown_id_falls_back_to_default() -> None:
+    from app.themes import DEFAULT_THEME_ID, get_theme
+
+    assert get_theme("no-existe").id == DEFAULT_THEME_ID
+
+
+# ------------------------------------------- diálogo Ajustes en pestañas
+def test_settings_dialog_has_tabs_and_appearance(qapp: QApplication) -> None:
+    """Ajustes en pestañas: General, Notificaciones, Apariencia, Atajos, Información."""
+    from PySide6.QtWidgets import QTabWidget
+
+    dialog = SettingsDialog(
+        get_settings(),
+        notifier_backend="test-backend",
+        version="0.1.8",
+    )
+    tabs = dialog.findChild(QTabWidget)
+    assert tabs is not None
+    labels = [tabs.tabText(i) for i in range(tabs.count())]
+    assert labels == ["General", "Notificaciones", "Apariencia", "Atajos", "Información"]
+    # La combo de temas enumera los 3 temas cargados.
+    assert dialog._combo_theme.count() == 3  # noqa: SLF001 - tests
+
+
+def test_settings_dialog_emits_appearance(qapp: QApplication) -> None:
+    """apply_appearance emite (tema, espectro, carátula) al aceptar."""
+    dialog = SettingsDialog(
+        get_settings(),
+        notifier_backend="test-backend",
+        version="0.1.6",
+    )
+    received: list[tuple[str, bool, bool]] = []
+    dialog.apply_appearance.connect(lambda t, s, c: received.append((t, s, c)))
+
+    dialog._combo_theme.setCurrentIndex(1)  # noqa: SLF001 - tests
+    dialog._check_spectrum.setChecked(False)  # noqa: SLF001 - tests
+    dialog._on_accepted()  # noqa: SLF001 - tests
+
+    assert len(received) == 1
+    theme_id, spectrum, _cover = received[0]
+    assert theme_id == dialog._combo_theme.currentData()  # noqa: SLF001 - tests
+    assert spectrum is False
+
+
+# ------------------------------------------- vista Favoritos (Ctrl+3)
+def test_songs_table_favorites_only_mode(songs: SongsTable, db: LibraryDatabase) -> None:
+    """Modo solo-favoritas: muestra únicamente las ★ marcadas."""
+    assert songs.favorites_only is False
+    db.toggle_favorite(str(Path(db.path).parent / "dos.wav"))
+
+    songs.set_favorites_only(True)
+
+    assert songs.favorites_only is True
+    titles = [track.title for track in songs.visible_tracks()]
+    assert titles == ["Dos"]
+
+
+def test_songs_table_refresh_requested_signal(songs: SongsTable) -> None:
+    """El botón de refresco emite refresh_requested (la ventana re-escanea)."""
+    received: list[int] = []
+    songs.refresh_requested.connect(lambda: received.append(1))
+
+    songs._button_refresh.click()  # noqa: SLF001 - tests
+
+    assert received == [1]
+
+
+def test_settings_library_folders_roundtrip(tmp_path: Path) -> None:
+    """library_folders persiste las carpetas escaneadas (Refrescar)."""
+    settings = Settings(tmp_path / "PyAmp-test.conf")
+
+    assert settings.library_folders == []
+    settings.library_folders = ["/música/a", "/música/a", " /música/b ", ""]
+    assert settings.library_folders == ["/música/a", "/música/b"]
+    settings.library_folders = []
+    assert settings.library_folders == []
+
+
+# ------------------------------------------------ letras: salto y editor
+def test_lyrics_window_seek_requested_on_double_click(qapp: QApplication, tmp_path: Path) -> None:
+    """Doble clic en una línea emite seek_requested con su marca de tiempo."""
+    audio = tmp_path / "tema-seekclick-test.mp3"
+    audio.write_bytes(b"")
+    (tmp_path / "tema-seekclick-test.lrc").write_text(
+        "[00:00]Intro\n[00:10]Estrofa\n", encoding="utf-8"
+    )
+    window = LyricsWindow()
+    window.show_track(Track(path=str(audio), title="Tema"))
+
+    received: list[int] = []
+    window.seek_requested.connect(received.append)
+
+    window._list.itemActivated.emit(window._list.item(1))  # noqa: SLF001 - tests
+    assert received == [10000]
+
+    window._list.itemActivated.emit(window._list.item(0))  # noqa: SLF001 - tests
+    assert received == [10000, 0]
+
+
+def test_lyrics_editor_saves_new_file_with_song_name(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Escribir letra nueva la guarda como <canción>.lrc en la biblioteca."""
+    import app.ui.lyrics_editor as editor_module
+
+    # LYRICS_DIR es una constante de módulo: se inyecta una carpeta temporal
+    # (aislado; nunca la biblioteca real de letras del usuario).
+    lyrics_dir = tmp_path / "lyrics"
+    monkeypatch.setattr(editor_module, "LYRICS_DIR", lyrics_dir)
+
+    audio = tmp_path / "cancion-nueva-test.mp3"
+    audio.write_bytes(b"")
+    dialog = editor_module.LyricsEditorDialog(Track(path=str(audio), title="Canción nueva"))
+    assert dialog.target_path == lyrics_dir / "cancion-nueva-test.lrc"
+    assert not dialog.target_path.is_file()  # aún no guardada
+
+    dialog._editor.setPlainText("[00:01]Hola\n[00:05]Adiós")  # noqa: SLF001 - tests
+    dialog._on_save()  # noqa: SLF001 - tests
+
+    assert dialog.target_path.is_file()
+    text = dialog.target_path.read_text(encoding="utf-8")
+    assert "[00:01]Hola" in text and "[00:05]Adiós" in text
+
+
+def test_lyrics_editor_edits_existing_sidecar(qapp: QApplication, tmp_path: Path) -> None:
+    """Si la pista ya tiene .lrc junto al audio, se edita ese archivo."""
+    from app.ui.lyrics_editor import LyricsEditorDialog
+
+    audio = tmp_path / "tema-editar-test.mp3"
+    audio.write_bytes(b"")
+    sidecar = tmp_path / "tema-editar-test.lrc"
+    sidecar.write_text("[00:03]Original", encoding="utf-8")
+
+    dialog = LyricsEditorDialog(Track(path=str(audio), title="Tema"))
+
+    assert dialog.target_path == sidecar
+    assert "[00:03]Original" in dialog._editor.toPlainText()  # noqa: SLF001 - tests
+
+
+# ------------------------------------------- espectro: captura y privacidad
+def test_spectrum_stop_capture_keeps_availability(qapp: QApplication) -> None:
+    """stop_capture termina parec sin marcar la captura como no disponible."""
+    widget = SpectrumWidget()
+    widget.set_playing(True)
+    widget.stop_capture()
+    assert widget._process is None  # noqa: SLF001 - tests (parec terminado)
+    # Sigue pudiendo relanzarse (set_playing(True) de nuevo).
+    widget.set_playing(False)
+    widget.set_playing(True)
+    widget.shutdown()
+
+
+def test_spectrum_set_hue_changes_bar_color(qapp: QApplication) -> None:
+    """set_hue cambia el tono de las barras (tema visual)."""
+    widget = SpectrumWidget()
+    assert widget._hue == 210  # noqa: SLF001 - tests (azul por defecto)
+    widget.set_hue(140)
+    assert widget._hue == 140  # noqa: SLF001 - tests
+    widget.set_hue(9999)
+    assert widget._hue == 359  # noqa: SLF001 - tests (recortado)
+
+
+def test_spectrum_set_colors_follow_theme(qapp: QApplication) -> None:
+    """El fondo y la línea central del espectro siguen el tema activo."""
+    widget = SpectrumWidget()
+    assert widget._bg_color.name() == "#181818"  # noqa: SLF001 - tests
+    widget.set_spectrum_colors("#e3d7c3", "#bfae90")
+    assert widget._bg_color.name() == "#e3d7c3"  # noqa: SLF001 - tests
+    assert widget._line_color.name() == "#bfae90"  # noqa: SLF001 - tests
+    widget.set_spectrum_colors("no-es-color", "#000000")  # inválido: se ignora
+    assert widget._bg_color.name() == "#e3d7c3"  # noqa: SLF001 - tests
+
+
+def test_format_album_label_hides_placeholder_year() -> None:
+    """El año «0000» que guarda la BD no se muestra en el árbol."""
+    from app.ui.library_panel import format_album_label
+
+    assert format_album_label("Disco", "0000") == "Disco"
+    assert format_album_label("Disco", "0") == "Disco"
+    assert format_album_label("Disco", None) == "Disco"
+    assert format_album_label("Disco", "2020") == "Disco (2020)"

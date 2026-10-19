@@ -83,6 +83,28 @@ y el proyecto sigue [SemVer](https://semver.org/lang/es/spec/v2.0.0.html).
   - Ajustes → «Atajos de teclado»: cuadrícula de `QKeySequenceEdit` para reasignar 12 atajos (transporte, vistas, archivo, letra, ajustes, salir); solo se persisten los que difieren del valor por defecto (`shortcuts/custom` en QSettings, `SHORTCUT_DEFAULTS` en `core/settings.py`) y la ventana principal los reaplica al vuelo; vacío = valor por defecto. Las teclas de hardware del sistema (MPRIS) no se tocan.
   - Letra sin LRC: en vez de una lista vacía, la ventana de letra muestra «Letra no disponible :(» centrado en gris (`PLACEHOLDER_TEXT`), que desaparece al encontrar letra real o al cambiar de pista.
   - Tests: 71 en total (códec real, espectro, atajos, letras).
+- **Ronda de ajustes 0.1.6 — temas, ajustes en pestañas, favoritos, aleatorio/repetir y letras editables** (versión **0.1.6**):
+  - **Temas visuales (3)** — `src/app/themes/`: `manager.py` (dataclass `Theme` + QSS generado con `string.Template` y `header_stylesheet()` para la cabecera) y `data/*.json` (`winamp-oscuro` nativo = look histórico; `verde-terminal`; `arena-clara`); submenú «Ver → Temas» (`QActionGroup`) y `Ajustes → Apariencia`, persistido en `ui/theme`; el tono del espectro se adapta al tema.
+  - **Ajustes en pestañas** — `settings_dialog.py` reescrito con `QTabWidget`: Notificaciones / Apariencia (tema, espectro, carátula) / Atajos / Información; nueva señal `apply_appearance(theme, spectrum, cover)`.
+  - **Favoritos como vista** — «Ver → Favoritos» (Ctrl+3, `view_favoritos`): tercera vista con la tabla en modo `favorites_only` y consulta `favorite_tracks()` en `library/database.py`.
+  - **Aleatorio (🔀) y Repetir (🔁)** — botones en el transporte con estado persistido (`playback/shuffle`, `playback/repeat`); `Player._advance_index()` elige un índice al azar distinto del actual (aleatorio) o vuelve a la primera pista al final (repetir).
+  - **Letras editables** — «Editar → Editar letra...» (`ui/lyrics_editor.py`): edita el `.lrc` existente (junto al audio o en la biblioteca de letras) o crea uno nuevo con el nombre de la canción; **doble clic en una línea** de la letra salta a ese punto y sigue reproduciendo (`LyricsWindow.seek_requested`).
+  - «Ver → Mostrar carátula» (`ui/show_cover`).
+  - «Refrescar canciones» re-escanea **todas** las carpetas recordadas: cada escaneo se guarda en `library/folders` (`Settings.library_folders`) y el botón lanza la cola completa en vez de solo recargar la BD.
+  - Espectro: `parec` **solo corre mientras suena** (`SpectrumWidget.stop_capture()` al pausar/parar/ocultar), así Plasma no muestra el indicador de grabación al abrir la app; nuevo `set_hue()` ligado al tema.
+  - Tests: 87 en total (temas, pestañas del diálogo, favoritos, aleatorio/repetir, editor de letras, salto desde la letra, `stop_capture`).
+- **Ronda de ajustes 0.1.7 — temas, árbol y textos** (versión **0.1.7**):
+  - **Iconos de transporte por tema** (`icon` en el JSON del tema): los botones anterior/reproducir/siguiente (F9/F10/F11) y el de silencio se tiñen con el color del tema, así se ven sobre el fondo claro de «Arena clara» (antes heredaban el color del escritorio y quedaban invisibles).
+  - **Espectro con los colores del tema**: fondo (`spectrum_bg`) y línea central (`spectrum_line`) ya siguen el tema; en «Verde terminal» el fondo del espectro deja de desentonar.
+  - Diálogo de **Ajustes más cuadrado** (tamaño mínimo 620×560) en vez de la franja aplastada.
+  - «Ver → Mostrar carátula» pasa a **«Ver → Mostrar imagen»** (y el ajuste equivalente en Apariencia).
+  - Biblioteca (árbol): los álbumes sin año real ya no muestran «(0000)» (la BD guarda ese valor cuando la etiqueta no trae fecha).
+  - Tests: 89 en total.
+- **Ronda de ajustes 0.1.8 — artistas separados por coma e idioma ES/EN** (versión **0.1.8**):
+  - **Biblioteca: un tema con varios artistas aparece bajo cada uno.** «Bad Bunny, Becky G» deja de ser un nodo propio: la pista se muestra bajo «Bad Bunny» y bajo «Becky G» (nodos individuales), y los álbumes de las colaboraciones se fusionan por título para no repetir el mismo nodo («Bad Bunny» aparece una vez). Nuevas consultas en `library/database.py`: `list_artists_grouped()`, `artist_ids_by_name()`, `albums_by_artist_name()` y `tracks_by_artist_name_and_album()`.
+  - **Idioma español / English** (`src/app/i18n.py`): las dos versiones de los textos de la interfaz viven en el código (español de base, con la tabla inglesa resolviendo `tr()`); **Ajustes → General** elige el idioma y, al pulsar Aceptar, PyAmp **se reinicia** en el idioma elegido (`Settings.language` → clave `ui/language`); `main.py` fija el idioma guardado antes de construir la interfaz.
+  - Corregido un `}` de más en `Theme.header_stylesheet()` que hacía que Qt descartara los estilos de la cabecera («Could not parse stylesheet»).
+  - Tests: 99 en total (idioma, pestaña General, reinicio al cambiar de idioma, artistas agrupados por nombre).
 
 ### Removed
 - (Fase 4) Splitter biblioteca|playlist y la lista lateral visible: ahora hay UNA vista a todo el ancho; la cola interna se controla con el transporte (▶/siguiente/anterior). La clave `window/splitter_state` se sustituye por `ui/view_mode`.
@@ -102,6 +124,7 @@ y el proyecto sigue [SemVer](https://semver.org/lang/es/spec/v2.0.0.html).
   tiempo; transporte al pie del recuadro).
 - `VlcBackend.position_ms()` usaba `get_position()` (fracción 0..1) × 1000: en archivos largos la barra de posición y el temporizador quedaban **congelados** (avanzaban ~192× más lento en un MP3 de 3 min). Ahora usa `get_time()` (ms directos) con fallback fracción×duración.
 - Los E2E ya no tocan la configuración real: usan `XDG_CONFIG_HOME`/`XDG_DATA_HOME` aislados (los anteriores habían dejado la playlist de prueba «Rojo/Azul» y una geometría offscreen en el QSettings real; se limpiaron).
+- Los tests ya no pueden contaminar la configuración real del usuario: aislar `XDG_CONFIG_HOME` **no bastaba** porque `QSettings` cachea la ruta por proceso, así que los `Settings()` «aislados» seguían leyendo y escribiendo `~/.config/PyAmp/PyAmp.conf`. Ahora `Settings` acepta una ruta explícita (`Settings(path)`), los tests usan un `.conf` temporal y un `conftest.py` redirige también el singleton `get_settings()`.
 - Workaround en `VlcBackend`: libVLC (Fedora 44, VLC 3.0.23) hace SIGSEGV si se llama `audio_set_volume`/`audio_set_mute` antes de existir la salida de audio; el volumen/mute se difiere hasta que `is_playing()` es True.
 - `_stringify` de metadatos: `ID3TimeStamp.text` es `str` (no se debe iterar como lista; provocaba año `"2"` en lugar de `"2024"`).
 - Espectrograma con las barras **pegadas al máximo** (0.81–1.00 en casi

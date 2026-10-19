@@ -1,6 +1,6 @@
 [project]
 name = "pyamp"
-version = "0.1.5"
+version = "0.1.8"
 description = "Reproductor de música local y radios online con estética Winamp moderna, escrito en Python con PySide6 y VLC."
 readme = "README_EN.md"
 requires-python = ">=3.11"
@@ -49,7 +49,7 @@ package-dir = { "" = "src" }
 packages = ["app"]
 
 [tool.setuptools.package-data]
-app = ["py.typed"]
+app = ["py.typed", "themes/data/*.json"]
 
 [tool.black]
 line-length = 100

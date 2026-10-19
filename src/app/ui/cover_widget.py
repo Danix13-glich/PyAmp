@@ -14,6 +14,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QLabel, QWidget
 
+from app.i18n import tr
+
 #: Lado del cuadrado en píxeles.
 COVER_SIZE_PX = 64
 
@@ -28,7 +30,7 @@ class CoverLabel(QLabel):
         super().__init__(parent)
         self.setFixedSize(COVER_SIZE_PX, COVER_SIZE_PX)
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.setToolTip("Carátula")
+        self.setToolTip(tr("Carátula"))
         self.setStyleSheet(_STYLE)
         self.clear_cover()
 

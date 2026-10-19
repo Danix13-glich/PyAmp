@@ -17,7 +17,7 @@ from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtWidgets import QApplication
 
 from app.core.player import STATE_PLAYING, Player
-from app.core.settings import get_settings
+from app.core.settings import Settings, get_settings
 
 #: Duración del WAV de prueba y espera del tick de sondeo.
 WAV_SECONDS = 3
@@ -104,5 +104,141 @@ def test_play_merges_real_codec_from_file(qapp: QApplication, tmp_path: Path) ->
         current = player.current_track
         assert current is not None
         assert current.codec == "WAV"  # leído del archivo, no adivinado
+    finally:
+        player.shutdown()
+
+
+# --------------------------------------------- aleatorio y repetir (0.1.6)
+class FakeBackend:
+    """Backend mínimo para probar la lógica de orden sin VLC."""
+
+    def __init__(self) -> None:
+        self.on_finished = None
+        self.on_error = None
+        self.loaded: list[str] = []
+        self._muted = False
+
+    def load(self, path: str) -> None:
+        self.loaded.append(path)
+
+    def play(self) -> None: ...
+    def pause(self) -> None: ...
+    def resume(self) -> None: ...
+    def stop(self) -> None: ...
+    def seek(self, position_ms: int) -> None: ...
+    def set_volume(self, volume: int) -> None: ...
+    def get_volume(self) -> int:
+        return 100
+
+    def set_muted(self, muted: bool) -> None:
+        self._muted = bool(muted)
+
+    def is_muted(self) -> bool:
+        return self._muted
+
+    def is_playing(self) -> bool:
+        return True
+
+    def is_paused(self) -> bool:
+        return False
+
+    def position_ms(self) -> int:
+        return 0
+
+    def duration_ms(self) -> int:
+        return 0
+
+    def release(self) -> None: ...
+
+
+def _fake_player(
+    track_count: int = 5, settings: Settings | None = None
+) -> tuple[Player, FakeBackend]:
+    """Player con backend falso y ``track_count`` pistas en la playlist.
+
+    El ``settings`` debe ser SIEMPRE una instancia aislada (archivo .conf
+    en tmp): los tests nunca tocan la QSettings real del usuario.
+    """
+    from app.core.playlist import PlaylistModel
+    from app.library.models import Track
+
+    backend = FakeBackend()
+    playlist = PlaylistModel([Track(path=f"/tmp/fake-{index}.wav") for index in range(track_count)])
+    player = Player(backend=backend, playlist=playlist, settings=settings)  # type: ignore[arg-type]
+    player.playlist.set_current(0)
+    return player, backend
+
+
+def _isolated_settings(tmp_path: Path) -> Settings:
+    """QSettings nueva y aislada en un archivo .conf del tmp del test.
+
+    Se usa una ruta explícita (no ``XDG_CONFIG_HOME``): QSettings cachea
+    la ruta de configuración del sistema por proceso, así que cambiar la
+    variable de entorno tras el primer ``QSettings`` no aísla nada.
+    """
+    from app.core.settings import Settings
+
+    return Settings(tmp_path / "PyAmp-test.conf")
+
+
+def test_shuffle_picks_random_other_index(qapp: QApplication, tmp_path, monkeypatch) -> None:
+    """🔀: siguiente = índice al azar distinto del actual (determinista en test)."""
+    settings = _isolated_settings(tmp_path)
+    player, _backend = _fake_player(settings=settings)
+    try:
+        player.shuffle = True
+        monkeypatch.setattr("app.core.player.random.randrange", lambda _n: 2)
+        assert player.next() is True
+        assert player.playlist.current_index == 3  # randrange(4)=2 → 2+1 (salta la actual 0)
+
+        # Con la actual en 3 y randrange devolviendo 3: se desplaza a 4.
+        monkeypatch.setattr("app.core.player.random.randrange", lambda _n: 3)
+        assert player.next() is True
+        assert player.playlist.current_index == 4
+    finally:
+        player.shutdown()
+
+
+def test_shuffle_off_uses_sequential_order(qapp: QApplication, tmp_path) -> None:
+    """Sin 🔀 el orden sigue siendo secuencial."""
+    settings = _isolated_settings(tmp_path)
+    player, _backend = _fake_player(track_count=3, settings=settings)
+    try:
+        player.shuffle = False
+        assert player.next() is True
+        assert player.playlist.current_index == 1
+        assert player.next() is True
+        assert player.playlist.current_index == 2
+        assert player.next() is False  # última sin repetición
+    finally:
+        player.shutdown()
+
+
+def test_repeat_wraps_to_first_at_end(qapp: QApplication, tmp_path) -> None:
+    """🔁: en la última pista, «siguiente» vuelve a la primera."""
+    settings = _isolated_settings(tmp_path)
+    player, _backend = _fake_player(track_count=3, settings=settings)
+    try:
+        player.repeat = True
+        player.playlist.set_current(2)
+        assert player.next() is True
+        assert player.playlist.current_index == 0
+    finally:
+        player.shutdown()
+
+
+def test_shuffle_and_repeat_persist_in_settings(qapp: QApplication, tmp_path) -> None:
+    """🔀 y 🔁 quedan guardados en QSettings (aislado, nunca el real)."""
+    settings = _isolated_settings(tmp_path)
+    assert settings.shuffle is False and settings.repeat is False
+
+    player, _backend = _fake_player(settings=settings)
+    try:
+        player.shuffle = True
+        player.repeat = True
+        assert settings.shuffle is True and settings.repeat is True
+        player.shuffle = False
+        player.repeat = False
+        assert settings.shuffle is False and settings.repeat is False
     finally:
         player.shutdown()

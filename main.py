@@ -15,6 +15,8 @@ if str(_SRC_DIR) not in sys.path:
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from app.core.settings import get_settings  # noqa: E402
+from app.i18n import set_language  # noqa: E402
 from app.ui.main_window import MainWindow  # noqa: E402
 from app.utils.logging import setup_logging  # noqa: E402
 from app.version import __version__  # noqa: E402
@@ -32,6 +34,10 @@ def main() -> int:
     app.setApplicationName("PyAmp")
     app.setOrganizationName("PyAmp")
     app.setApplicationVersion(__version__)
+
+    # Idioma guardado (Ajustes → General) ANTES de construir la interfaz:
+    # las dos versiones de los textos viven en app/i18n.py.
+    set_language(get_settings().language)
 
     log_file = setup_logging()
     logger.info(

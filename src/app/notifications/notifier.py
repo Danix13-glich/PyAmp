@@ -29,6 +29,8 @@ import platform
 from pathlib import Path
 from typing import Any
 
+from app.i18n import tr
+
 logger = logging.getLogger(__name__)
 
 # Duración por defecto en segundos (configurable en Ajustes -> Notificaciones).
@@ -58,9 +60,9 @@ def _fallback_title(track: Any) -> str:
 
     path = track.get("path") if isinstance(track, dict) else getattr(track, "path", None)
     if path:
-        return Path(str(path)).stem or "Sin título"
+        return Path(str(path)).stem or tr("Sin título")
 
-    return "Sin título"
+    return tr("Sin título")
 
 
 def format_track_notification(track: Any) -> tuple[str, str, str]:
@@ -93,11 +95,11 @@ def format_track_notification(track: Any) -> tuple[str, str, str]:
         path = getattr(track, "path", None)
 
     title = _fallback_title(track)
-    body = str(artist).strip() if artist else UNKNOWN_ARTIST_TEXT
+    body = str(artist).strip() if artist else tr(UNKNOWN_ARTIST_TEXT)
 
     # Detección de "desconocido": strings vacíos o marcadores habituales.
     if not body or body.lower() in {"unknown artist", "(unknown)", "-", "none"}:
-        body = UNKNOWN_ARTIST_TEXT
+        body = tr(UNKNOWN_ARTIST_TEXT)
 
     logger.debug("format_track_notification: path=%r title=%r body=%r", path, title, body)
     return ("PyAmp", title, body)

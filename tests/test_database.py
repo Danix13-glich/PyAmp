@@ -104,6 +104,25 @@ def test_upsert_creates_track_and_resolves_artist_album(db: LibraryDatabase) -> 
     assert albums[0].track_count == 1
 
 
+def test_artists_grouped_by_individual_name(db: LibraryDatabase) -> None:
+    """«A, B» cuenta como dos artistas y las pistas se comparten."""
+    db.upsert_track(Track(path="/m/a.mp3", title="Solo", artist="Bad Bunny", album="Solo"))
+    db.upsert_track(
+        Track(path="/m/b.mp3", title="Dueto", artist="Bad Bunny, Becky G", album="Dueto")
+    )
+
+    grouped = {a.name: a.track_count for a in db.list_artists_grouped()}
+    assert grouped == {"Bad Bunny": 2, "Becky G": 1}
+    assert all(a.id is None for a in db.list_artists_grouped())
+
+    # La colaboración aparece en los álbumes de los dos artistas.
+    assert len(db.artist_ids_by_name("Bad Bunny")) == 2
+    assert len(db.artist_ids_by_name("Becky G")) == 1
+    assert {a.title for a in db.albums_by_artist_name("Bad Bunny")} == {"Solo", "Dueto"}
+    assert {a.title for a in db.albums_by_artist_name("Becky G")} == {"Dueto"}
+    assert db.albums_by_artist_name("Nadie") == []
+
+
 def test_upsert_updates_in_place_and_keeps_stats(db: LibraryDatabase) -> None:
     track_id = db.upsert_track(Track(path="/m/a.mp3", title="Viejo"))
     added_at = db.get_track(track_id).added_at  # type: ignore[union-attr]

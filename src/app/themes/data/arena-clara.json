@@ -1,0 +1,29 @@
+{
+  "id": "arena-clara",
+  "name": "Arena clara",
+  "native": false,
+  "spectrum_hue": 30,
+  "colors": {
+    "header_bg": "#efe6d8",
+    "header_title": "#3a2f1e",
+    "header_label": "#6b5c42",
+    "header_format": "#8a7a5e",
+    "header_time": "#453a26",
+    "text_muted": "#6b5c42",
+    "spectrum_bg": "#e3d7c3",
+    "spectrum_line": "#bfae90",
+    "icon": "#3a2f1e",
+    "window_bg": "#f5eee1",
+    "window_text": "#3a2f1e",
+    "surface_bg": "#fbf6ec",
+    "surface_alt": "#eee3cf",
+    "border": "#cbbda0",
+    "accent": "#c07a26",
+    "accent_text": "#ffffff",
+    "button_bg": "#eee3cf",
+    "button_hover": "#e2d4ba",
+    "button_border": "#cbbda0",
+    "slider_groove": "#cbbda0",
+    "slider_handle": "#7a6544"
+  }
+}

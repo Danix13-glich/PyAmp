@@ -21,6 +21,7 @@ componentes sin referencia directa al player (biblioteca, MPRIS, ...).
 from __future__ import annotations
 
 import logging
+import random
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -95,6 +96,8 @@ class Player(QObject):
         self._playlist = playlist if playlist is not None else PlaylistModel()
         self._state = STATE_STOPPED
         self._duration = 0
+        self._shuffle = bool(self._settings.shuffle)
+        self._repeat = bool(self._settings.repeat)
 
         # NB: `_audio_error_msg` NO se llama `_backend_error` para no pisar
         # la señal Qt `_backend_error`.
@@ -159,6 +162,27 @@ class Player(QObject):
     def backend_error(self) -> str | None:
         """Mensaje del fallo de backend (None si está operativo)."""
         return self._audio_error_msg
+
+    # ------------------------------------------------------- aleatorio/repetir
+    @property
+    def shuffle(self) -> bool:
+        """True si «siguiente» elige pista al azar (🔀)."""
+        return self._shuffle
+
+    @shuffle.setter
+    def shuffle(self, value: bool) -> None:
+        self._shuffle = bool(value)
+        self._settings.shuffle = self._shuffle
+
+    @property
+    def repeat(self) -> bool:
+        """True si al terminar la playlist se vuelve a la primera (🔁)."""
+        return self._repeat
+
+    @repeat.setter
+    def repeat(self, value: bool) -> None:
+        self._repeat = bool(value)
+        self._settings.repeat = self._repeat
 
     # ------------------------------------------------------------ de reproducción
     def add_paths(self, paths: list[str]) -> list[Track]:
@@ -287,8 +311,11 @@ class Player(QObject):
         return self._start_track(track)
 
     def next(self) -> bool:
-        """Salta a la siguiente pista. En la última, no hace nada."""
-        index = self._playlist.next_index()
+        """Salta a la siguiente pista (o al azar si hay aleatorio).
+
+        En la última sin repetición, no hace nada.
+        """
+        index = self._advance_index()
         if index is None:
             logger.debug("next: ya estás en la última pista")
             return False
@@ -459,12 +486,36 @@ class Player(QObject):
         QTimer.singleShot(AUTO_ADVANCE_DELAY_MS, self._auto_advance)
 
     def _auto_advance(self) -> None:
-        index = self._playlist.next_index()
+        index = self._advance_index()
         if index is None:
             logger.info("Fin de la playlist")
             self.stop()
             return
         self.play_index(index)
+
+    def _advance_index(self) -> int | None:
+        """Índice de la siguiente pista según aleatorio/repetición.
+
+        * Aleatorio (🔀): pista al azar distinta de la actual (nunca la
+          misma salvo playlist de una sola pista con repetición).
+        * Repetición (🔁): al terminar la playlist se vuelve a la primera.
+        * Sin ninguno: secuencial; ``None`` en la última (fin → stop).
+
+        Returns:
+            Índice a reproducir, o None si no hay siguiente.
+        """
+        size = len(self._playlist)
+        if size == 0:
+            return None
+        current = self._playlist.current_index
+        if self._shuffle and size > 1:
+            # Cualquier índice salvo el actual (sin repetir la misma).
+            choice = random.randrange(size - 1)
+            return choice if choice < current else choice + 1
+        candidate = self._playlist.next_index()
+        if candidate is not None:
+            return candidate
+        return 0 if self._repeat else None
 
     def _handle_backend_error(self, message: str) -> None:
         logger.error("Backend: %s", message)

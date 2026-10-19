@@ -1,0 +1,29 @@
+{
+  "id": "winamp-oscuro",
+  "name": "Winamp oscuro (actual)",
+  "native": true,
+  "spectrum_hue": 210,
+  "colors": {
+    "header_bg": "#17171b",
+    "header_title": "#f2f2f7",
+    "header_label": "#9e9ea6",
+    "header_format": "#7e7e88",
+    "header_time": "#e8e8ee",
+    "text_muted": "#9e9ea6",
+    "spectrum_bg": "#181818",
+    "spectrum_line": "#464646",
+    "icon": "#e8e8ee",
+    "window_bg": "#17171b",
+    "window_text": "#e8e8ee",
+    "surface_bg": "#1f1f24",
+    "surface_alt": "#26262c",
+    "border": "#3a3a42",
+    "accent": "#3d7bd9",
+    "accent_text": "#ffffff",
+    "button_bg": "#26262c",
+    "button_hover": "#33333b",
+    "button_border": "#3a3a42",
+    "slider_groove": "#3a3a42",
+    "slider_handle": "#e8e8ee"
+  }
+}

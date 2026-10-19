@@ -9,6 +9,8 @@ Si no hay letra para la pista (o no hay pista), el panel muestra el
 aviso centrado «Letra no disponible :(". La ventana es independiente
 (``Qt.Window``), se sitúa junto a la principal y sigue la reproducción:
 la línea que coincide con la posición actual se resalta en negrita azul.
+Doble clic (o Enter) sobre una línea emite ``seek_requested(posición_ms)``,
+con lo que la reproducción salta a ese punto y continúa desde ahí.
 Sin metadatos de red: solo archivos locales.
 """
 
@@ -19,7 +21,7 @@ import logging
 import re
 from pathlib import Path
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QDialog,
@@ -30,6 +32,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.i18n import tr
 from app.library.models import Track
 from app.utils.paths import LYRICS_DIR
 
@@ -85,12 +88,17 @@ class LyricsWindow(QDialog):
 
     Como ``QDialog`` con la ventana principal como parent, el compositor
     (KDE/Wayland incluido) la sitúa junto a la principal.
+
+    Señal: ``seek_requested(position_ms)`` — doble clic o Enter sobre una
+    línea con marca de tiempo (la ventana principal salta el player ahí).
     """
+
+    seek_requested = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setModal(False)
-        self.setWindowTitle("Letra — PyAmp")
+        self.setWindowTitle(tr("Letra — PyAmp"))
         self.setMinimumSize(*WINDOW_TITLE_MIN)
 
         layout = QVBoxLayout(self)
@@ -110,7 +118,7 @@ class LyricsWindow(QDialog):
         self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         layout.addWidget(self._list, stretch=1)
 
-        self._placeholder = QLabel(PLACEHOLDER_TEXT)
+        self._placeholder = QLabel(tr(PLACEHOLDER_TEXT))
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setWordWrap(True)
         placeholder_font = QFont(self._placeholder.font())
@@ -130,6 +138,14 @@ class LyricsWindow(QDialog):
         self._base_font = self._list.font()
         self._active_font = QFont(self._base_font)
         self._active_font.setBold(True)
+
+        self._list.itemActivated.connect(self._on_item_activated)
+
+    def _on_item_activated(self, item: QListWidgetItem) -> None:
+        """Doble clic o Enter: saltar a la marca de tiempo de esa línea."""
+        row = self._list.row(item)
+        if 0 <= row < len(self._times):
+            self.seek_requested.emit(self._times[row])
 
     # ------------------------------------------------------------ API pública
     @property
@@ -157,7 +173,7 @@ class LyricsWindow(QDialog):
 
         if track is None or not track.path:
             self._label_track.setText("—")
-            self._status.setText("No hay ninguna pista en reproducción")
+            self._status.setText(tr("No hay ninguna pista en reproducción"))
             self._set_placeholder(True)
             return
 
@@ -165,7 +181,11 @@ class LyricsWindow(QDialog):
         lrc_path = find_lrc_path(track.path)
         if lrc_path is None:
             stem = Path(track.path).stem
-            self._status.setText(f"No encontré «{stem}.lrc» (junto al audio o en {LYRICS_DIR})")
+            self._status.setText(
+                tr("No encontré «{stem}.lrc» (junto al audio o en {directory})").format(
+                    stem=stem, directory=LYRICS_DIR
+                )
+            )
             self._set_placeholder(True)
             return
 
@@ -173,7 +193,9 @@ class LyricsWindow(QDialog):
             text = lrc_path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
             logger.warning("No se pudo leer la letra %s: %s", lrc_path, exc)
-            self._status.setText(f"No se pudo leer {lrc_path.name}: {exc}")
+            self._status.setText(
+                tr("No se pudo leer {name}: {error}").format(name=lrc_path.name, error=exc)
+            )
             self._set_placeholder(True)
             return
 
@@ -181,14 +203,18 @@ class LyricsWindow(QDialog):
         if not self._entries:
             raw = text.strip()
             if not raw:
-                self._status.setText(f"{lrc_path.name}: sin marcas de tiempo [mm:ss]")
+                self._status.setText(
+                    tr("{name}: sin marcas de tiempo [mm:ss]").format(name=lrc_path.name)
+                )
                 self._set_placeholder(True)
                 return
             self._list.addItem(raw)
-            self._status.setText(f"{lrc_path.name}: sin marcas de tiempo [mm:ss]")
+            self._status.setText(
+                tr("{name}: sin marcas de tiempo [mm:ss]").format(name=lrc_path.name)
+            )
             return
 
-        self._status.setText(f"Letra: {lrc_path.name}")
+        self._status.setText(tr("Letra: {name}").format(name=lrc_path.name))
         for _position_ms, lyric in self._entries:
             self._list.addItem(lyric)
         self._times = [position_ms for position_ms, _lyric in self._entries]
