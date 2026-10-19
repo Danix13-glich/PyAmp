@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <b>English:</b> <a href="README_EN.md">README_EN.md</a>
+  <b>English version:</b> <a href="README_EN.md">README_EN.md</a>
 </p>
 
 ## Funciones
@@ -36,7 +36,7 @@
 
 ## Instalación
 
-### Fedora (plataforma principal)
+### Fedora
 
 ```bash
 sudo dnf install vlc python3-vlc python3.12
