@@ -13,8 +13,9 @@ from PySide6.QtWidgets import QWidget
 
 logger = logging.getLogger(__name__)
 
-#: Número de barras dibujadas (12 bandas iguales).
-BAR_COUNT = 12
+#: Número de barras dibujadas (11 bandas iguales; la última del rango
+#: agudo no se usaba y se eliminó para no dejar una barra muerta).
+BAR_COUNT = 11
 
 #: Parámetros de la captura (float32 mono).
 SAMPLE_RATE = 44100

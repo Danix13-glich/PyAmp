@@ -982,11 +982,13 @@ class MainWindow(QMainWindow):
             self._settings.view_mode = mode
 
     def _update_radio_controls(self, radio: bool) -> None:
-        # La radio no usa la barra de posición, el aleatorio ni el repetir.
+        # La radio no usa la barra de posición, el aleatorio, el repetir ni
+        # el favorito (las emisoras no son pistas).
         self._radio_view = radio
         self._slider_seek.setVisible(not radio)
         self._button_shuffle.setVisible(not radio)
         self._button_repeat.setVisible(not radio)
+        self._button_favorite.setVisible(not radio)
         self._update_time_label(self._slider_seek.value())
 
     def _on_radio_play(self, station: object) -> None:

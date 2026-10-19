@@ -468,7 +468,7 @@ def test_spectrum_widget_start_stop_and_shutdown_are_safe(qapp: QApplication) ->
 
 def test_spectrum_widget_is_compact_and_blue_bars(qapp: QApplication) -> None:
     widget = SpectrumWidget()
-    assert BAR_COUNT == 12
+    assert BAR_COUNT == 11
     assert widget.minimumHeight() == 64
     assert widget.width() == 120  # ancho fijo (no colapsa en filas horizontales)
 
