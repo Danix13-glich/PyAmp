@@ -118,6 +118,11 @@ mypy
 python main.py
 ```
 
+## Contacto
+
+¿Quieres más información o has tenido algún error de uso? Escríbeme a
+**danieldiaz.dx3@gmail.com**.
+
 ## Licencia
 
 MIT — ver [LICENSE](LICENSE). Copyright © 2026 Danix13-glich.
