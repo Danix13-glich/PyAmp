@@ -18,10 +18,13 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
+    QInputDialog,
     QLabel,
     QMainWindow,
+    QMessageBox,
     QSlider,
     QStackedWidget,
     QStyle,
@@ -43,18 +46,28 @@ from app.core.settings import (
 from app.i18n import set_language, tr
 from app.library.covers import extract_cover
 from app.library.database import LibraryDatabase
-from app.library.metadata import format_audio_info, read_metadata
+from app.library.metadata import format_audio_info, read_metadata, write_metadata
 from app.library.models import RadioStation, Track
 from app.library.scanner import ScannerThread
 from app.notifications.notifier import Notifier
 from app.radio import RadioLibrary
-from app.themes import DEFAULT_THEME_ID, Theme, get_theme, load_themes
+from app.themes import DEFAULT_THEME_ID, Theme, get_theme, load_themes, reload_themes
 from app.ui.cover_widget import CoverLabel
 from app.ui.lyrics_editor import LyricsEditorDialog
 from app.ui.lyrics_window import LyricsWindow
+from app.ui.metadata_editor import MetadataEditorDialog
 from app.ui.radio_panel import RadioPanel
 from app.ui.settings_dialog import SettingsDialog
-from app.ui.songs_table import SongsTable
+from app.ui.songs_table import (
+    ACTION_DELETE,
+    ACTION_EDIT_METADATA,
+    ACTION_FAVORITE,
+    ACTION_HIDE,
+    ACTION_RENAME,
+    ACTION_UNFAVORITE,
+    ACTION_UNHIDE,
+    SongsTable,
+)
 from app.ui.spectrum_widget import SpectrumWidget
 from app.utils.paths import PLAYLISTS_DIR
 from app.utils.time_format import format_time
@@ -65,9 +78,6 @@ logger = logging.getLogger(__name__)
 WINDOW_TITLE = "PyAmp"
 ERROR_TIMEOUT_MS = 10000
 VOLUME_SLIDER_WIDTH = 140
-
-#: Tamaño inicial de la ventana.
-WINDOW_INITIAL_SIZE = (630, 485)
 
 #: Separación (px) entre la ventana principal y la de letra.
 LYRICS_GAP_PX = 8
@@ -123,6 +133,7 @@ class MainWindow(QMainWindow):
         self._last_folder = str(Path.home())
         self._mpris: Any = None  # MprisAdapter (solo Linux; ver _init_mpris)
         self._lyrics_window: LyricsWindow | None = None
+        self._radio_station: RadioStation | None = None
         self._shortcut_actions: dict[str, QAction] = {}
         self._theme_actions: dict[str, QAction] = {}
         #: Icono nativo de cada botón de transporte (para re-teñirlo por tema).
@@ -138,7 +149,7 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         self.setWindowTitle(WINDOW_TITLE)
         self.setMinimumSize(480, 360)
-        self.resize(*WINDOW_INITIAL_SIZE)
+        self.resize(self._settings.window_width, self._settings.window_height)
 
         central = QWidget(self)
         layout = QVBoxLayout(central)
@@ -285,6 +296,9 @@ class MainWindow(QMainWindow):
         self._songs_table = SongsTable(self._library)
         self._favorites_table = SongsTable(self._library)
         self._favorites_table.set_favorites_only(True)
+        show_hidden = self._settings.show_hidden
+        self._songs_table.set_show_hidden(show_hidden)
+        self._favorites_table.set_show_hidden(show_hidden)
         self._radio = RadioLibrary(self._settings)
         self._radio_panel = RadioPanel(self._radio)
         self._stacked = QStackedWidget()
@@ -390,17 +404,10 @@ class MainWindow(QMainWindow):
         view_menu.addAction(action_lyrics)
 
         # Submenú de temas (mismo catálogo que Ajustes → Apariencia).
-        themes_menu = view_menu.addMenu(tr("&Tema"))
-        theme_group = QActionGroup(self)
-        theme_group.setExclusive(True)
-        for theme in load_themes().values():
-            action = QAction(theme.name, self)
-            action.setCheckable(True)
-            action.setData(theme.id)
-            action.triggered.connect(lambda checked=False, tid=theme.id: self._apply_theme_id(tid))
-            theme_group.addAction(action)
-            themes_menu.addAction(action)
-            self._theme_actions[theme.id] = action
+        self._themes_menu = view_menu.addMenu(tr("&Tema"))
+        self._theme_group = QActionGroup(self)
+        self._theme_group.setExclusive(True)
+        self._populate_theme_menu()
 
         # --- menú Editar ---
         edit_menu = self.menuBar().addMenu(tr("&Editar"))
@@ -542,11 +549,14 @@ class MainWindow(QMainWindow):
         self._songs_table.track_activated.connect(self._on_library_track_activated)
         self._songs_table.favorite_toggled.connect(self._on_favorite_row_toggled)
         self._songs_table.refresh_requested.connect(self._on_refresh_songs)
+        self._songs_table.action_requested.connect(self._on_songs_action)
         self._favorites_table.track_activated.connect(self._on_library_track_activated)
         self._favorites_table.favorite_toggled.connect(self._on_favorite_row_toggled)
         self._favorites_table.refresh_requested.connect(self._on_refresh_songs)
+        self._favorites_table.action_requested.connect(self._on_songs_action)
         self._radio_panel.play_requested.connect(self._on_radio_play)
         self._radio_panel.stop_requested.connect(self._on_radio_stop)
+        self._radio_panel.station_selected.connect(self._on_radio_selection)
 
         if not player.is_available:
             self.statusBar().showMessage(player.backend_error or tr("Audio no disponible"), 0)
@@ -816,8 +826,12 @@ class MainWindow(QMainWindow):
         self._label_album.setText(track.album or "")
         self._label_album.setVisible(bool(track.album))
         self._label_format.setText(format_audio_info(track))
-        cover = self._cover_for(track)
-        self._cover_label.set_cover(cover)
+        if "://" in track.path:
+            self._show_station_badge(track.display_title)
+            cover = None
+        else:
+            cover = self._cover_for(track)
+            self._cover_label.set_cover(cover)
 
         if track.duration_ms > 0:
             self._duration_ms = track.duration_ms
@@ -923,6 +937,7 @@ class MainWindow(QMainWindow):
     def _on_radio_play(self, station: object) -> None:
         if not isinstance(station, RadioStation):
             return
+        self._radio_station = station
         if self._player.play_stream(station.url, station.name, tr("Radio online")):
             self._radio_panel.show_message(tr("Reproduciendo {name}").format(name=station.name))
             self.statusBar().showMessage(
@@ -931,7 +946,132 @@ class MainWindow(QMainWindow):
 
     def _on_radio_stop(self) -> None:
         self._player.stop()
+        self._radio_station = None
         self._radio_panel.show_message(tr("Radio detenida"))
+
+    def _on_radio_selection(self, station: object) -> None:
+        if isinstance(station, RadioStation):
+            self._radio_station = station
+            self._show_station_badge(station.name)
+
+    def _show_station_badge(self, name: str) -> None:
+        self._cover_label.setVisible(self._settings.show_cover)
+        if not self._settings.show_cover:
+            return
+        self._cover_label.set_station_badge(
+            name, self._theme.color("accent"), self._theme.color("accent_text")
+        )
+
+    def _on_songs_action(self, action: str, track: object) -> None:
+        if not isinstance(track, Track) or not track.path:
+            return
+        if action == ACTION_FAVORITE:
+            if not track.is_favorite:
+                self._toggle_favorite(track)
+        elif action == ACTION_UNFAVORITE:
+            if track.is_favorite:
+                self._toggle_favorite(track)
+        elif action == ACTION_HIDE:
+            self._set_hidden(track, True)
+        elif action == ACTION_UNHIDE:
+            self._set_hidden(track, False)
+        elif action == ACTION_RENAME:
+            self._rename_track(track)
+        elif action == ACTION_DELETE:
+            self._delete_track(track)
+        elif action == ACTION_EDIT_METADATA:
+            self._edit_track_metadata(track)
+
+    def _set_hidden(self, track: Track, hidden: bool) -> None:
+        try:
+            self._library.set_hidden(track.path, hidden)
+        except Exception as exc:  # noqa: BLE001 - la música no se detiene
+            logger.warning("No se pudo ocultar/mostrar: %s", exc)
+            return
+        track.is_hidden = hidden
+        self._songs_table.refresh()
+        self._favorites_table.refresh()
+        self.statusBar().showMessage(
+            tr("Pista oculta") if hidden else tr("Pista visible"), ERROR_TIMEOUT_MS
+        )
+
+    def _rename_track(self, track: Track) -> None:
+        source = Path(track.path)
+        if not source.is_file():
+            self._on_error(tr("No se encontró el archivo: {path}").format(path=track.path))
+            return
+        new_stem, accepted = QInputDialog.getText(
+            self, tr("Renombrar"), tr("Nuevo nombre:"), text=source.stem
+        )
+        new_stem = str(new_stem).strip()
+        if not accepted or not new_stem or new_stem == source.stem:
+            return
+        target = source.with_name(new_stem + source.suffix)
+        if target.exists():
+            self._on_error(tr("Ya existe un archivo con ese nombre"))
+            return
+        try:
+            source.rename(target)
+        except OSError as exc:
+            self._on_error(tr("No se pudo renombrar: {error}").format(error=exc))
+            return
+        new_path = str(target)
+        try:
+            self._library.rename_track_path(track.path, new_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("No se pudo actualizar la ruta en la biblioteca: %s", exc)
+        self._player.playlist.rename_path(track.path, new_path)
+        track.path = new_path
+        self._songs_table.refresh()
+        self._favorites_table.refresh()
+        current = self._player.current_track
+        if current is not None and current.path == new_path:
+            self._show_track(current)
+        self.statusBar().showMessage(
+            tr("Renombrado a {name}").format(name=target.name), ERROR_TIMEOUT_MS
+        )
+
+    def _delete_track(self, track: Track) -> None:
+        confirm = QMessageBox.question(
+            self,
+            tr("Eliminar"),
+            tr("¿Quitar «{name}» de la biblioteca?\n(El archivo no se borra del disco.)").format(
+                name=track.display_name
+            ),
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            self._library.remove_track(track.path)
+        except Exception as exc:  # noqa: BLE001
+            self._on_error(tr("No se pudo eliminar: {error}").format(error=exc))
+            return
+        self._songs_table.refresh()
+        self._favorites_table.refresh()
+        self.statusBar().showMessage(tr("Pista eliminada de la biblioteca"), ERROR_TIMEOUT_MS)
+
+    def _edit_track_metadata(self, track: Track) -> None:
+        dialog = MetadataEditorDialog(track, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        values = dialog.values()
+        try:
+            write_metadata(track.path, values)
+        except Exception as exc:  # noqa: BLE001 - un tag no debe tumbar la app
+            self._on_error(tr("No se pudo guardar la metadata: {error}").format(error=exc))
+            return
+        for field, value in values.items():
+            setattr(track, field, value)
+        try:
+            self._library.update_track_fields(track.path, values)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("No se pudo actualizar la biblioteca: %s", exc)
+        self._songs_table.refresh()
+        self._favorites_table.refresh()
+        current = self._player.current_track
+        if current is not None and current.path == track.path:
+            self._show_track(current)
+        self.statusBar().showMessage(tr("Metadata actualizada"), ERROR_TIMEOUT_MS)
 
     def _on_open_settings(self) -> None:
         stats: dict[str, int] | None
@@ -949,6 +1089,8 @@ class MainWindow(QMainWindow):
         dialog.apply_language.connect(self._on_apply_language)
         dialog.apply_settings.connect(self._apply_notification_settings)
         dialog.apply_appearance.connect(self._apply_appearance_from_dialog)
+        dialog.apply_window_size.connect(self._apply_window_size_from_dialog)
+        dialog.apply_show_hidden.connect(self._apply_show_hidden_from_dialog)
         dialog.apply_shortcuts.connect(self._apply_shortcuts_from_dialog)
         dialog.test_notification.connect(self._send_test_notification)
         dialog.exec()
@@ -972,6 +1114,8 @@ class MainWindow(QMainWindow):
         QApplication.quit()
 
     def _apply_appearance_from_dialog(self, theme_id: str, spectrum: bool, cover: bool) -> None:
+        reload_themes()
+        self._populate_theme_menu()
         self._apply_theme_id(str(theme_id))
         if bool(spectrum) != self._action_show_spectrum.isChecked():
             self._action_show_spectrum.setChecked(bool(spectrum))
@@ -979,6 +1123,26 @@ class MainWindow(QMainWindow):
         if bool(cover) != self._action_show_cover.isChecked():
             self._action_show_cover.setChecked(bool(cover))
             self._on_toggle_cover(bool(cover))
+
+    def _apply_window_size_from_dialog(self, width: int, height: int) -> None:
+        self._settings.window_width = int(width)
+        self._settings.window_height = int(height)
+        self.resize(self._settings.window_width, self._settings.window_height)
+        self.statusBar().showMessage(
+            tr("Tamaño de ventana: {width}×{height}").format(
+                width=self._settings.window_width, height=self._settings.window_height
+            ),
+            ERROR_TIMEOUT_MS,
+        )
+
+    def _apply_show_hidden_from_dialog(self, show_hidden: bool) -> None:
+        self._settings.show_hidden = bool(show_hidden)
+        self._songs_table.set_show_hidden(bool(show_hidden))
+        self._favorites_table.set_show_hidden(bool(show_hidden))
+        self.statusBar().showMessage(
+            tr("Mostrando archivos ocultos") if show_hidden else tr("Ocultando archivos ocultos"),
+            ERROR_TIMEOUT_MS,
+        )
 
     def _apply_shortcuts_from_dialog(self, mapping: dict) -> None:
         clean = {key: str(value) for key, value in dict(mapping).items()}
@@ -1065,11 +1229,30 @@ class MainWindow(QMainWindow):
     def _on_toggle_cover(self, checked: bool) -> None:
         self._settings.show_cover = checked
         self._cover_label.setVisible(checked)
+        if checked and self._radio_station is not None:
+            self._show_station_badge(self._radio_station.name)
         self.statusBar().showMessage(
             tr("Imagen visible") if checked else tr("Imagen oculta"), ERROR_TIMEOUT_MS
         )
 
     # ------------------------------------------------------------ temas (0.1.6)
+    def _populate_theme_menu(self) -> None:
+        self._themes_menu.clear()
+        for action in list(self._theme_actions.values()):
+            self._theme_group.removeAction(action)
+        self._theme_actions.clear()
+        for theme in load_themes().values():
+            action = QAction(theme.name, self)
+            action.setCheckable(True)
+            action.setData(theme.id)
+            action.triggered.connect(lambda checked=False, tid=theme.id: self._apply_theme_id(tid))
+            self._theme_group.addAction(action)
+            self._themes_menu.addAction(action)
+            self._theme_actions[theme.id] = action
+        active = self._theme_actions.get(self._theme.id)
+        if active is not None:
+            active.setChecked(True)
+
     def _apply_theme_id(self, theme_id: str) -> None:
         self._apply_theme(get_theme(theme_id), save=True)
 
@@ -1087,6 +1270,8 @@ class MainWindow(QMainWindow):
             action.setChecked(True)
         if save:
             self._settings.theme_id = theme.id
+        if self._radio_station is not None:
+            self._show_station_badge(self._radio_station.name)
         logger.info("Tema aplicado: %s (%s)", theme.name, theme.id)
 
     # ------------------------------------------------- 0.1.6: aleatorio/repetir

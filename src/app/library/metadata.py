@@ -12,7 +12,7 @@ from .models import Track
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["MetadataError", "read_metadata", "extract_cover", "AUDIO_EXTENSIONS"]
+__all__ = ["MetadataError", "read_metadata", "extract_cover", "AUDIO_EXTENSIONS", "write_metadata"]
 
 #: Extensiones que PyAmp reconoce como audio (fuente única del proyecto:
 #: la playlist y el escáner de la biblioteca la importan de aquí).
@@ -43,7 +43,7 @@ _TITLE_KEYS = ("title", "TIT2", "©nam")
 _ARTIST_KEYS = ("artist", "TPE1", "©ART")
 _ALBUM_KEYS = ("album", "TALB", "©alb")
 _ALBUMARTIST_KEYS = ("albumartist", "TPE2", "aART")
-_GENRE_KEYS = ("genre", "TGEN", "©gen")
+_GENRE_KEYS = ("genre", "TGEN", "TCON", "©gen")
 _YEAR_KEYS = ("date", "year", "TDRC", "TYER", "©day")
 _TRACKNO_KEYS = ("tracknumber", "TRCK", "trkn")
 _DISCNO_KEYS = ("discnumber", "TPOS", "disk")
@@ -176,6 +176,99 @@ def read_metadata(path: str | Path) -> Track:
             track.channels = int(channels)
 
     return track
+
+
+# ---------------------------------------------------------------- escritura
+#: Campo del formulario → clave «easy» de mutagen.
+_WRITE_KEYS = {
+    "title": "title",
+    "artist": "artist",
+    "album": "album",
+    "albumartist": "albumartist",
+    "genre": "genre",
+    "year": "date",
+    "track_no": "tracknumber",
+    "disc_no": "discnumber",
+}
+
+#: Formatos sin interfaz «easy»: sus etiquetas son frames ID3.
+_ID3_FRAME_CLASSES: dict[str, type] = {}
+
+
+def _id3_frame_classes() -> dict[str, type]:
+    if _ID3_FRAME_CLASSES:
+        return _ID3_FRAME_CLASSES
+    from mutagen.id3 import TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK
+
+    _ID3_FRAME_CLASSES.update(
+        {
+            "title": TIT2,
+            "artist": TPE1,
+            "album": TALB,
+            "albumartist": TPE2,
+            "genre": TCON,
+            "year": TDRC,
+            "track_no": TRCK,
+            "disc_no": TPOS,
+        }
+    )
+    return _ID3_FRAME_CLASSES
+
+
+def write_metadata(path: str | Path, fields: dict[str, object]) -> None:
+    file_path = Path(path).expanduser()
+    if not file_path.is_file():
+        raise MetadataError(f"Archivo no encontrado: {path}")
+    try:
+        audio = mutagen.File(str(file_path), easy=True)
+    except Exception as exc:  # noqa: BLE001 - archivo corrupto: no crash
+        raise MetadataError(f"No se pudo abrir {file_path.name}: {exc}") from exc
+    if audio is None:
+        raise MetadataError(f"Formato no soportado: {file_path.name}")
+
+    try:
+        if type(audio).__name__ in {"WAVE", "AIFF"}:
+            _write_id3_tags(audio, fields)
+        else:
+            _write_easy_tags(audio, fields)
+    except MetadataError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - disco lleno, permisos, etc.
+        raise MetadataError(f"No se pudo guardar {file_path.name}: {exc}") from exc
+
+
+def _write_easy_tags(audio: object, fields: dict[str, object]) -> None:
+    if audio.tags is None:  # type: ignore[attr-defined]
+        audio.add_tags()  # type: ignore[attr-defined]
+    for field, key in _WRITE_KEYS.items():
+        if field not in fields:
+            continue
+        text = "" if fields[field] is None else str(fields[field]).strip()
+        if text:
+            audio[key] = [text]  # type: ignore[index]
+        elif key in audio:  # type: ignore[operator]
+            del audio[key]  # type: ignore[attr-defined]
+    audio.save()  # type: ignore[attr-defined]
+
+
+def _write_id3_tags(audio: object, fields: dict[str, object]) -> None:
+    from mutagen.id3 import ID3
+
+    if audio.tags is None:  # type: ignore[attr-defined]
+        audio.add_tags()  # type: ignore[attr-defined]
+    tags = audio.tags  # type: ignore[attr-defined]
+    if not isinstance(tags, ID3):
+        return
+    for field, frame_class in _id3_frame_classes().items():
+        if field not in fields:
+            continue
+        text = "" if fields[field] is None else str(fields[field]).strip()
+        frame_id = frame_class.__name__
+        if text:
+            tags.setall(frame_id, [frame_class(encoding=3, text=[text])])
+        else:
+            tags.delall(frame_id)
+    audio.save()  # type: ignore[attr-defined]
 
 
 # ---------------------------------------------------------------- carátula

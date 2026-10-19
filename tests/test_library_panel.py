@@ -605,8 +605,15 @@ def test_settings_dialog_has_tabs_and_appearance(qapp: QApplication) -> None:
     general = tabs.widget(0)
     groups = {box.title() for box in general.findChildren(QGroupBox)}
     assert {"Idioma", "Notificaciones", "Información"} <= groups
-    # La combo de temas enumera los 3 temas cargados.
-    assert dialog._combo_theme.count() == 3  # noqa: SLF001 - tests
+    # La combo de temas enumera los 3 temas + «Crear tema nuevo…».
+    from app.ui.settings_dialog import CREATE_THEME_SENTINEL
+
+    assert dialog._combo_theme.count() == 4  # noqa: SLF001 - tests
+    assert (
+        dialog._combo_theme.itemData(dialog._combo_theme.count() - 1)  # noqa: SLF001 - tests
+        == CREATE_THEME_SENTINEL
+    )
+    assert dialog._create_group.isVisible() is False  # noqa: SLF001 - tests
 
 
 def test_settings_dialog_emits_appearance(qapp: QApplication) -> None:

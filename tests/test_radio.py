@@ -69,6 +69,39 @@ def test_search_matches_name_genre_and_country(tmp_path: Path) -> None:
     assert library.search("no-existe-xyz") == []
 
 
+def test_builtin_station_can_be_edited(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    library = RadioLibrary(settings)
+    base = library.stations()[0]
+    edited = RadioStation("Nombre nuevo", base.url, "Rock", "España")
+
+    assert library.update(base.url, edited) is True
+    current = RadioLibrary(settings).stations()[0]
+    assert current.name == "Nombre nuevo"
+    assert current.genre == "Rock"
+    assert current.country == "España"
+    assert current.builtin is True
+    assert library.custom_stations() == []
+
+
+def test_builtin_station_can_be_removed(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    library = RadioLibrary(settings)
+    url = library.stations()[0].url
+
+    library.remove(url)
+
+    assert all(station.url != url for station in library.stations())
+    assert all(station.url != url for station in RadioLibrary(settings).stations())
+
+
+def test_radio_dialog_includes_country(qapp: QApplication, tmp_path: Path) -> None:
+    from app.ui.radio_panel import RadioStationDialog
+
+    dialog = RadioStationDialog(RadioStation("E", "http://e", "Pop", "Suiza"))
+    assert dialog.station().country == "Suiza"
+
+
 class FakeBackend:
     def __init__(self) -> None:
         self.on_finished = None

@@ -51,10 +51,14 @@ class VlcBackend(AudioBackend):
 
     # ------------------------------------------------------------------ carga
     def load(self, path: str) -> None:
-        file_path = Path(path).expanduser()
-        if not file_path.is_file():
-            raise BackendError(f"Archivo no encontrado: {path}")
-        media = self._instance.media_new_path(str(file_path.resolve()))
+        text = str(path).strip()
+        if "://" in text:
+            media = self._instance.media_new_location(text)
+        else:
+            file_path = Path(text).expanduser()
+            if not file_path.is_file():
+                raise BackendError(f"Archivo no encontrado: {path}")
+            media = self._instance.media_new_path(str(file_path.resolve()))
         if media is None:
             raise BackendError(f"VLC no pudo cargar: {path}")
         self._player.set_media(media)

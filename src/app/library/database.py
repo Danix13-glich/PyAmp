@@ -11,7 +11,7 @@ from .models import Album, Artist, Track
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS artists (
@@ -106,6 +106,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.commit()
         logger.info("Biblioteca migrada a esquema v2 (favoritos)")
 
+    if version < 3:
+        # Pistas ocultas por el usuario (Ajustes → Apariencia → Mostrar ocultos).
+        conn.execute("ALTER TABLE tracks ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0")
+        conn.execute("PRAGMA user_version = 3")
+        conn.commit()
+        logger.info("Biblioteca migrada a esquema v3 (ocultos)")
+
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
     _migrate(conn)
@@ -135,6 +142,7 @@ def row_to_track(row: sqlite3.Row) -> Track:
         last_played_at=row["last_played_at"],
         play_count=row["play_count"] or 0,
         is_favorite=bool(row["is_favorite"] or 0),
+        is_hidden=bool(row["is_hidden"] or 0),
     )
 
 
@@ -299,6 +307,57 @@ def favorite_tracks(conn: sqlite3.Connection, limit: int = 10000) -> list[Track]
     return [row_to_track(row) for row in rows]
 
 
+def set_hidden(conn: sqlite3.Connection, path: str, hidden: bool) -> bool:
+    cursor = conn.execute(
+        "UPDATE tracks SET is_hidden = ? WHERE path = ?", (1 if hidden else 0, path)
+    )
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def remove_track(conn: sqlite3.Connection, path: str) -> bool:
+    cursor = conn.execute("DELETE FROM tracks WHERE path = ?", (path,))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def rename_track_path(conn: sqlite3.Connection, old_path: str, new_path: str) -> bool:
+    cursor = conn.execute("UPDATE tracks SET path = ? WHERE path = ?", (new_path, old_path))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
+def update_track_fields(conn: sqlite3.Connection, path: str, fields: dict[str, object]) -> bool:
+    allowed = {
+        "title",
+        "artist",
+        "album",
+        "albumartist",
+        "genre",
+        "year",
+        "track_no",
+        "disc_no",
+    }
+    clean = {key: value for key, value in fields.items() if key in allowed}
+    if not clean:
+        return False
+    artist_id = _resolve_artist(conn, str(clean.get("artist") or ""))
+    album_id = _resolve_album(
+        conn,
+        str(clean.get("album") or ""),
+        artist_id,
+        str(clean.get("year") or "") or None,
+    )
+    assignments = ", ".join(f"{key} = :{key}" for key in clean)
+    params: dict[str, object] = {**clean, "path": path}
+    sets = f"{assignments}, artist_id = :artist_id, album_id = :album_id"
+    params["artist_id"] = artist_id
+    params["album_id"] = album_id
+    cursor = conn.execute(f"UPDATE tracks SET {sets} WHERE path = :path", params)
+    conn.commit()
+    return cursor.rowcount > 0
+
+
 def _escape_like(term: str) -> str:
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
@@ -343,6 +402,18 @@ class LibraryDatabase:
 
     def favorite_tracks(self, limit: int = 10000) -> list[Track]:
         return favorite_tracks(self._conn, limit)
+
+    def set_hidden(self, path: str, hidden: bool) -> bool:
+        return set_hidden(self._conn, path, hidden)
+
+    def remove_track(self, path: str) -> bool:
+        return remove_track(self._conn, path)
+
+    def rename_track_path(self, old_path: str, new_path: str) -> bool:
+        return rename_track_path(self._conn, old_path, new_path)
+
+    def update_track_fields(self, path: str, fields: dict[str, object]) -> bool:
+        return update_track_fields(self._conn, path, fields)
 
     def track_states(self) -> dict[str, tuple[int | None, int | None]]:
         rows = self._conn.execute("SELECT path, file_mtime, file_size FROM tracks").fetchall()

@@ -108,6 +108,14 @@ class PlaylistModel:
                 return index
         return -1
 
+    def rename_path(self, old_path: str, new_path: str) -> int:
+        changed = 0
+        for track in self.tracks:
+            if track.path == old_path:
+                track.path = new_path
+                changed += 1
+        return changed
+
     # ---------------------------------------------------------------- .m3u
     def save_m3u(self, path: str | Path) -> None:
         target = Path(path).expanduser()

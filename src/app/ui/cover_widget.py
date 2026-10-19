@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QRect, Qt
+from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import QLabel, QWidget
 
 from app.i18n import tr
@@ -13,6 +13,34 @@ COVER_SIZE_PX = 64
 
 _PLACEHOLDER_TEXT = "♪"
 _STYLE = "QLabel { border: 1px solid rgba(120,120,120,160); border-radius: 4px; }"
+
+
+def station_initials(name: str) -> str:
+    words = [word for word in str(name).split() if word]
+    if not words:
+        return "R"
+    if len(words) == 1:
+        return words[0][:2].upper()
+    return (words[0][:1] + words[1][:1]).upper()
+
+
+def station_badge(name: str, size: int, accent: str, text_color: str) -> QPixmap:
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setBrush(QColor(accent))
+    painter.setPen(Qt.PenStyle.NoPen)
+    radius = max(6, size // 8)
+    painter.drawRoundedRect(QRect(0, 0, size, size), radius, radius)
+    painter.setPen(QColor(text_color))
+    font = QFont()
+    font.setPixelSize(max(10, int(size * 0.42)))
+    font.setBold(True)
+    painter.setFont(font)
+    painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, station_initials(name))
+    painter.end()
+    return pixmap
 
 
 class CoverLabel(QLabel):
@@ -44,3 +72,8 @@ class CoverLabel(QLabel):
         )
         self.setText("")
         self.setPixmap(scaled)
+
+    def set_station_badge(self, name: str, accent: str, text_color: str) -> None:
+        self.setText("")
+        self.setToolTip(name)
+        self.setPixmap(station_badge(name, COVER_SIZE_PX, accent, text_color))

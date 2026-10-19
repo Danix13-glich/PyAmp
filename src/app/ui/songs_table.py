@@ -7,6 +7,7 @@ from PySide6.QtCore import (
     QAbstractTableModel,
     QModelIndex,
     QPersistentModelIndex,
+    QPoint,
     QSortFilterProxyModel,
     Qt,
     QTimer,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QStyle,
     QTableView,
     QToolButton,
@@ -39,16 +41,30 @@ HEADERS = ("Nombre", "Duración", "Artista", "★")
 #: Rol de ordenación: valor comparable de cada columna (str/ int).
 SORT_ROLE = Qt.ItemDataRole.UserRole + 1
 
+#: Prefijo que marca una pista oculta cuando se muestran.
+HIDDEN_PREFIX = "-"
+
+ACTION_FAVORITE = "favorite"
+ACTION_UNFAVORITE = "unfavorite"
+ACTION_HIDE = "hide"
+ACTION_UNHIDE = "unhide"
+ACTION_RENAME = "rename"
+ACTION_DELETE = "delete"
+ACTION_EDIT_METADATA = "edit_metadata"
+
 
 class SongsTableModel(QAbstractTableModel):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._tracks: list[Track] = []
+        self._show_hidden = False
 
-    def set_tracks(self, tracks: list[Track]) -> None:
+    def set_tracks(self, tracks: list[Track], show_hidden: bool = False) -> None:
+        self._show_hidden = bool(show_hidden)
+        visible = [track for track in tracks if self._show_hidden or not track.is_hidden]
         self.beginResetModel()
-        self._tracks = list(tracks)
+        self._tracks = visible
         self.endResetModel()
 
     def track_at(self, row: int) -> Track | None:
@@ -87,7 +103,8 @@ class SongsTableModel(QAbstractTableModel):
         column = index.column()
         if role == Qt.ItemDataRole.DisplayRole:
             if column == COLUMN_NAME:
-                return track.display_title
+                name = track.display_title
+                return f"{HIDDEN_PREFIX}{name}" if track.is_hidden else name
             if column == COLUMN_DURATION:
                 return format_time(track.duration_ms) if track.duration_ms > 0 else "—"
             if column == COLUMN_ARTIST:
@@ -103,7 +120,8 @@ class SongsTableModel(QAbstractTableModel):
                 return track.display_artist.casefold()
             if column == COLUMN_FAVORITE:
                 return 1 if track.is_favorite else 0
-            return track.display_title.casefold()
+            name = track.display_title.casefold()
+            return f"{HIDDEN_PREFIX}{name}" if track.is_hidden else name
         return None
 
 
@@ -113,11 +131,14 @@ class SongsTable(QWidget):
     favorite_toggled = Signal(object)
     #: El botón de refresco pide re-escanear (la ventana decide cómo).
     refresh_requested = Signal()
+    #: Acción del menú contextual: (id, pista).
+    action_requested = Signal(str, object)
 
     def __init__(self, database: LibraryDatabase, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._database = database
         self._favorites_only = False
+        self._show_hidden = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -157,6 +178,8 @@ class SongsTable(QWidget):
         self._view.setColumnWidth(COLUMN_DURATION, 80)
         self._view.setColumnWidth(COLUMN_ARTIST, 220)
         self._view.setColumnWidth(COLUMN_FAVORITE, 32)
+        self._view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._view.customContextMenuRequested.connect(self._on_context_menu)
         root.addWidget(self._view, stretch=1)
 
         self._empty_label = QLabel("")
@@ -197,6 +220,10 @@ class SongsTable(QWidget):
         self._favorites_only = bool(favorites_only)
         self.refresh()
 
+    def set_show_hidden(self, show_hidden: bool) -> None:
+        self._show_hidden = bool(show_hidden)
+        self.refresh()
+
     def selected_track(self) -> Track | None:
         index = self._view.currentIndex()
         if not index.isValid():
@@ -207,11 +234,13 @@ class SongsTable(QWidget):
     def refresh(self) -> None:
         try:
             if self._favorites_only:
-                self._model.set_tracks(self._database.favorite_tracks())
+                tracks = self._database.favorite_tracks()
             else:
-                self._model.set_tracks(self._database.all_tracks())
+                tracks = self._database.all_tracks()
         except Exception as exc:  # noqa: BLE001 - una consulta no tumbará la UI
             logger.warning("Canciones: fallo al recargar: %s", exc)
+            tracks = []
+        self._model.set_tracks(tracks, self._show_hidden)
         self._update_labels()
 
     def search(self, term: str) -> None:
@@ -251,6 +280,45 @@ class SongsTable(QWidget):
                 visible=visible, total=total, favorites=favorites
             )
         )
+
+    def _track_at_position(self, position: QPoint) -> Track | None:
+        index = self._view.indexAt(position)
+        if not index.isValid():
+            return None
+        self._view.setCurrentIndex(index)
+        source = self._proxy.mapToSource(index)
+        return self._model.track_at(source.row())
+
+    def _on_context_menu(self, position: QPoint) -> None:
+        track = self._track_at_position(position)
+        if track is None or not track.path:
+            return
+        menu = QMenu(self)
+        if track.is_favorite:
+            action_fav = menu.addAction(tr("Quitar de favoritos"))
+            action_fav.triggered.connect(
+                lambda: self.action_requested.emit(ACTION_UNFAVORITE, track)
+            )
+        else:
+            action_fav = menu.addAction(tr("Mover a favoritos"))
+            action_fav.triggered.connect(lambda: self.action_requested.emit(ACTION_FAVORITE, track))
+        if track.is_hidden:
+            action_hide = menu.addAction(tr("Mostrar"))
+            action_hide.triggered.connect(lambda: self.action_requested.emit(ACTION_UNHIDE, track))
+        else:
+            action_hide = menu.addAction(tr("Ocultar"))
+            action_hide.triggered.connect(lambda: self.action_requested.emit(ACTION_HIDE, track))
+        menu.addSeparator()
+        action_rename = menu.addAction(tr("Renombrar"))
+        action_rename.triggered.connect(lambda: self.action_requested.emit(ACTION_RENAME, track))
+        action_metadata = menu.addAction(tr("Editar metadata"))
+        action_metadata.triggered.connect(
+            lambda: self.action_requested.emit(ACTION_EDIT_METADATA, track)
+        )
+        menu.addSeparator()
+        action_delete = menu.addAction(tr("Eliminar"))
+        action_delete.triggered.connect(lambda: self.action_requested.emit(ACTION_DELETE, track))
+        menu.exec(self._view.viewport().mapToGlobal(position))
 
     def _on_activated(self, proxy_index: QModelIndex) -> None:
         if not proxy_index.isValid():

@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtGui import QKeySequence
+from PySide6.QtGui import QColor, QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -22,12 +23,19 @@ from PySide6.QtWidgets import (
 
 from app.core.settings import (
     MAX_TIMEOUT_MS,
+    MAX_WINDOW_HEIGHT,
+    MAX_WINDOW_WIDTH,
     MIN_TIMEOUT_MS,
+    MIN_WINDOW_HEIGHT,
+    MIN_WINDOW_WIDTH,
     SHORTCUT_DEFAULTS,
     Settings,
 )
 from app.i18n import LANGUAGES, tr
-from app.themes import DEFAULT_THEME_ID, load_themes
+from app.themes import DEFAULT_THEME_ID, create_custom_theme, load_themes
+
+#: Valor centinela del combo de temas para «crear uno nuevo».
+CREATE_THEME_SENTINEL = "__create_theme__"
 
 #: Etiquetas (en español) de cada atajo personalizable, por ID.
 SHORTCUT_LABELS: dict[str, str] = {
@@ -55,6 +63,8 @@ class SettingsDialog(QDialog):
     apply_language = Signal(str)
     apply_settings = Signal(bool, int)
     apply_appearance = Signal(str, bool, bool)  # tema, espectro, carátula
+    apply_window_size = Signal(int, int)
+    apply_show_hidden = Signal(bool)
     apply_shortcuts = Signal(dict)
     test_notification = Signal()
 
@@ -163,11 +173,48 @@ class SettingsDialog(QDialog):
         themes = load_themes()
         for theme in themes.values():
             self._combo_theme.addItem(theme.name, theme.id)
+        self._combo_theme.addItem(tr("➕ Crear tema nuevo…"), CREATE_THEME_SENTINEL)
         wanted = settings.theme_id or DEFAULT_THEME_ID
         index = self._combo_theme.findData(wanted)
         self._combo_theme.setCurrentIndex(index if index >= 0 else 0)
         self._combo_theme.setToolTip(tr("Tema visual de toda la aplicación"))
+        self._combo_theme.currentIndexChanged.connect(self._on_theme_changed)
         form.addRow(tr("Tema:"), self._combo_theme)
+
+        self._color_values: dict[str, str] = {
+            "bg": "#17171b",
+            "text": "#e8e8ee",
+            "accent": "#3d7bd9",
+        }
+        self._create_group = QGroupBox(tr("Crear tema nuevo"))
+        create_form = QFormLayout(self._create_group)
+        self._btn_color_bg = self._make_color_button("bg", "Fondo")
+        self._btn_color_text = self._make_color_button("text", "Texto")
+        self._btn_color_accent = self._make_color_button("accent", "Color de acento")
+        create_form.addRow(tr("Fondo:"), self._btn_color_bg)
+        create_form.addRow(tr("Texto:"), self._btn_color_text)
+        create_form.addRow(tr("Acento:"), self._btn_color_accent)
+        self._create_group.setVisible(False)
+        form.addRow(self._create_group)
+
+        size_row = QHBoxLayout()
+        self._spin_width = QSpinBox()
+        self._spin_width.setRange(MIN_WINDOW_WIDTH, MAX_WINDOW_WIDTH)
+        self._spin_width.setSuffix(" px")
+        self._spin_width.setValue(settings.window_width)
+        self._spin_height = QSpinBox()
+        self._spin_height.setRange(MIN_WINDOW_HEIGHT, MAX_WINDOW_HEIGHT)
+        self._spin_height.setSuffix(" px")
+        self._spin_height.setValue(settings.window_height)
+        size_row.addWidget(QLabel(tr("Ancho")))
+        size_row.addWidget(self._spin_width)
+        size_row.addWidget(QLabel(tr("Alto")))
+        size_row.addWidget(self._spin_height)
+        size_row.addStretch(1)
+        size_widget = QWidget()
+        size_widget.setLayout(size_row)
+        self._spin_width.setToolTip(tr("Tamaño por defecto de la ventana principal"))
+        form.addRow(tr("Tamaño de la ventana:"), size_widget)
 
         self._check_spectrum = QCheckBox(tr("Mostrar espectrograma en la cabecera"))
         self._check_spectrum.setChecked(settings.show_spectrum)
@@ -176,7 +223,47 @@ class SettingsDialog(QDialog):
         self._check_cover = QCheckBox(tr("Mostrar imagen en la cabecera"))
         self._check_cover.setChecked(settings.show_cover)
         form.addRow(self._check_cover)
+
+        self._check_hidden = QCheckBox(tr("Mostrar archivos ocultos"))
+        self._check_hidden.setChecked(settings.show_hidden)
+        self._check_hidden.setToolTip(
+            tr("Los archivos ocultos aparecen al principio, con un «-» delante.")
+        )
+        form.addRow(self._check_hidden)
         return page
+
+    def _make_color_button(self, role: str, label: str) -> QPushButton:
+        button = QPushButton()
+        button.setMinimumWidth(120)
+        button.setToolTip(label)
+        button.clicked.connect(lambda: self._pick_color(role))
+        self._apply_color_style(button, self._color_values[role])
+        return button
+
+    def _apply_color_style(self, button: QPushButton, color: str) -> None:
+        text = "#000000" if QColor(color).lightness() > 140 else "#ffffff"
+        button.setText(color.upper())
+        button.setStyleSheet(
+            f"QPushButton {{ background-color: {color}; color: {text};"
+            " border: 1px solid #808080; border-radius: 4px; padding: 4px 12px; }"
+        )
+
+    def _pick_color(self, role: str) -> None:
+        current = QColor(self._color_values[role])
+        chosen = QColorDialog.getColor(current, self, tr("Elegir color"))
+        if not chosen.isValid():
+            return
+        self._color_values[role] = chosen.name()
+        button = {
+            "bg": self._btn_color_bg,
+            "text": self._btn_color_text,
+            "accent": self._btn_color_accent,
+        }[role]
+        self._apply_color_style(button, chosen.name())
+
+    def _on_theme_changed(self) -> None:
+        creating = self._combo_theme.currentData() == CREATE_THEME_SENTINEL
+        self._create_group.setVisible(creating)
 
     def _build_shortcuts(self, settings: Settings) -> QWidget:
         page = QWidget()
@@ -214,12 +301,28 @@ class SettingsDialog(QDialog):
         self.apply_language.emit(str(self._combo_language.currentData() or "es"))
         self.apply_settings.emit(self._check_enabled.isChecked(), self._spin_timeout.value() * 1000)
         self.apply_appearance.emit(
-            str(self._combo_theme.currentData() or DEFAULT_THEME_ID),
+            self._resolve_theme_id(),
             self._check_spectrum.isChecked(),
             self._check_cover.isChecked(),
         )
+        self.apply_window_size.emit(self._spin_width.value(), self._spin_height.value())
+        self.apply_show_hidden.emit(self._check_hidden.isChecked())
         self.apply_shortcuts.emit(self._collect_shortcuts())
         self.accept()
+
+    def _resolve_theme_id(self) -> str:
+        selected = str(self._combo_theme.currentData() or DEFAULT_THEME_ID)
+        if selected != CREATE_THEME_SENTINEL:
+            return selected
+        try:
+            theme = create_custom_theme(
+                self._color_values["bg"],
+                self._color_values["text"],
+                self._color_values["accent"],
+            )
+        except Exception:  # noqa: BLE001 - un tema no debe impedir guardar
+            return DEFAULT_THEME_ID
+        return theme.id
 
     def _collect_shortcuts(self) -> dict[str, str]:
         mapping: dict[str, str] = {}

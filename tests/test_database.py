@@ -194,6 +194,55 @@ def test_schema_has_favorite_column(db: LibraryDatabase) -> None:
     assert "is_favorite" in columns
 
 
+def test_schema_has_hidden_column(db: LibraryDatabase) -> None:
+    columns = {row["name"] for row in db.connection.execute("PRAGMA table_info(tracks)").fetchall()}
+    assert "is_hidden" in columns
+
+
+def test_set_hidden_roundtrip(db: LibraryDatabase) -> None:
+    db.upsert_track(Track(path="/m/h.mp3", title="Oculta"))
+    assert db.set_hidden("/m/h.mp3", True) is True
+    track = db.get_track_by_path("/m/h.mp3")
+    assert track is not None and track.is_hidden is True
+    assert db.set_hidden("/m/h.mp3", False) is True
+    track = db.get_track_by_path("/m/h.mp3")
+    assert track is not None and track.is_hidden is False
+    assert db.set_hidden("/m/desconocida.mp3", True) is False
+
+
+def test_remove_track_removes_only_row(db: LibraryDatabase) -> None:
+    db.upsert_track(Track(path="/m/x.mp3", title="X"))
+    assert db.remove_track("/m/x.mp3") is True
+    assert db.get_track_by_path("/m/x.mp3") is None
+    assert db.remove_track("/m/x.mp3") is False
+
+
+def test_rename_track_path(db: LibraryDatabase) -> None:
+    db.upsert_track(Track(path="/m/vieja.mp3", title="T", artist="A"))
+    db.toggle_favorite("/m/vieja.mp3")
+    assert db.rename_track_path("/m/vieja.mp3", "/m/nueva.mp3") is True
+    assert db.get_track_by_path("/m/vieja.mp3") is None
+    renamed = db.get_track_by_path("/m/nueva.mp3")
+    assert renamed is not None and renamed.title == "T"
+    assert renamed.is_favorite is True
+    assert db.rename_track_path("/m/no-existe.mp3", "/m/otra.mp3") is False
+
+
+def test_update_track_fields_resolves_artist_album(db: LibraryDatabase) -> None:
+    db.upsert_track(Track(path="/m/m.mp3", title="Viejo", artist="Viejo", album="Viejo"))
+    changed = db.update_track_fields(
+        "/m/m.mp3",
+        {"title": "Nuevo", "artist": "Artista", "album": "Álbum", "year": "2025"},
+    )
+    assert changed is True
+    track = db.get_track_by_path("/m/m.mp3")
+    assert track is not None
+    assert track.title == "Nuevo"
+    assert track.artist == "Artista"
+    assert "Artista" in {a.name for a in db.list_artists()}
+    assert db.update_track_fields("/m/m.mp3", {}) is False
+
+
 def test_migration_v1_to_v2_adds_favorite_column(tmp_path: Path) -> None:
     from app.library.database import _SCHEMA_V1
 
@@ -209,9 +258,10 @@ def test_migration_v1_to_v2_adds_favorite_column(tmp_path: Path) -> None:
     database = LibraryDatabase(path)
     try:
         row = database.connection.execute("PRAGMA user_version").fetchone()
-        assert row is not None and row[0] == SCHEMA_VERSION == 2
+        assert row is not None and row[0] == SCHEMA_VERSION == 3
         columns = {r["name"] for r in database.connection.execute("PRAGMA table_info(tracks)")}
         assert "is_favorite" in columns
+        assert "is_hidden" in columns
     finally:
         database.close()
 

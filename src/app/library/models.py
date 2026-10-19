@@ -40,6 +40,8 @@ class Track:
     play_count: int = 0
     #: Favorito marcado por el usuario (columna BD `is_favorite`).
     is_favorite: bool = False
+    #: Oculto por el usuario (columna BD `is_hidden`).
+    is_hidden: bool = False
     # Campos extra que pueda aportar un .m3u (no persisten en BD).
     extra: dict[str, str] = field(default_factory=dict)
 

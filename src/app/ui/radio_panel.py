@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QPoint, Qt, Signal
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
+    QMenu,
     QMessageBox,
     QPushButton,
     QTableWidget,
@@ -37,9 +38,11 @@ class RadioStationDialog(QDialog):
         self._edit_name = QLineEdit(station.name if station else "")
         self._edit_url = QLineEdit(station.url if station else "")
         self._edit_genre = QLineEdit(station.genre if station else "")
+        self._edit_country = QLineEdit(station.country if station else "")
         form.addRow(tr("Nombre:"), self._edit_name)
         form.addRow(tr("Dirección (URL):"), self._edit_url)
         form.addRow(tr("Género:"), self._edit_genre)
+        form.addRow(tr("País:"), self._edit_country)
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -53,6 +56,7 @@ class RadioStationDialog(QDialog):
             name=self._edit_name.text().strip(),
             url=self._edit_url.text().strip(),
             genre=self._edit_genre.text().strip(),
+            country=self._edit_country.text().strip(),
         )
 
 
@@ -60,6 +64,7 @@ class RadioPanel(QWidget):
 
     play_requested = Signal(object)  # RadioStation
     stop_requested = Signal()
+    station_selected = Signal(object)  # RadioStation
 
     def __init__(self, radio: RadioLibrary, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -85,11 +90,14 @@ class RadioPanel(QWidget):
         self._table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._table.setAlternatingRowColors(True)
         self._table.setShowGrid(False)
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_context_menu)
         header = self._table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         self._table.doubleClicked.connect(lambda *_: self._play_selected())
+        self._table.itemSelectionChanged.connect(self._emit_selected)
         layout.addWidget(self._table, stretch=1)
 
         buttons = QHBoxLayout()
@@ -121,6 +129,7 @@ class RadioPanel(QWidget):
 
     def refresh(self) -> None:
         stations = self._radio.search(self._search.text())
+        self._table.blockSignals(True)
         self._table.setRowCount(0)
         for station in stations:
             row = self._table.rowCount()
@@ -134,6 +143,7 @@ class RadioPanel(QWidget):
             self._table.setItem(
                 row, 2, QTableWidgetItem(tr(station.country) if station.country else "")
             )
+        self._table.blockSignals(False)
         self._status.setText(
             tr("{shown} de {total} emisoras").format(
                 shown=len(stations), total=len(self._radio.stations())
@@ -152,6 +162,11 @@ class RadioPanel(QWidget):
 
     def show_message(self, text: str) -> None:
         self._status.setText(text)
+
+    def _emit_selected(self) -> None:
+        station = self.selected_station()
+        if station is not None:
+            self.station_selected.emit(station)
 
     def _play_selected(self) -> None:
         station = self.selected_station()
@@ -173,9 +188,36 @@ class RadioPanel(QWidget):
         self.refresh()
 
     def _on_edit(self) -> None:
+        self._edit_station(self.selected_station())
+
+    def _on_remove(self) -> None:
         station = self.selected_station()
-        if station is None or station.builtin:
-            self._status.setText(tr("Solo se pueden editar tus emisoras"))
+        if station is None:
+            self._status.setText(tr("Selecciona una emisora"))
+            return
+        self._confirm_remove(station)
+
+    def _on_context_menu(self, position: QPoint) -> None:
+        row = self._table.rowAt(position.y())
+        if row < 0:
+            return
+        self._table.setCurrentCell(row, 0)
+        station = self.selected_station()
+        if station is None:
+            return
+        menu = QMenu(self)
+        action_play = menu.addAction(tr("Reproducir"))
+        action_play.triggered.connect(lambda: self.play_requested.emit(station))
+        menu.addSeparator()
+        action_edit = menu.addAction(tr("Editar Valores"))
+        action_edit.triggered.connect(lambda: self._edit_station(station))
+        action_remove = menu.addAction(tr("Eliminar"))
+        action_remove.triggered.connect(lambda: self._confirm_remove(station))
+        menu.exec(self._table.viewport().mapToGlobal(position))
+
+    def _edit_station(self, station: RadioStation | None) -> None:
+        if station is None:
+            self._status.setText(tr("Selecciona una emisora"))
             return
         dialog = RadioStationDialog(station, parent=self)
         if dialog.exec() != QDialog.DialogCode.Accepted:
@@ -183,14 +225,12 @@ class RadioPanel(QWidget):
         edited = dialog.station()
         if not edited.name or not edited.url:
             return
-        self._radio.update(station.url, edited)
+        if not self._radio.update(station.url, edited):
+            QMessageBox.information(self, tr("Radio"), tr("Esa emisora ya está en la lista."))
+            return
         self.refresh()
 
-    def _on_remove(self) -> None:
-        station = self.selected_station()
-        if station is None or station.builtin:
-            self._status.setText(tr("Solo se pueden borrar tus emisoras"))
-            return
+    def _confirm_remove(self, station: RadioStation) -> None:
         confirm = QMessageBox.question(
             self,
             tr("Radio"),

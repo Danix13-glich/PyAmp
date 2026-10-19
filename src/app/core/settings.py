@@ -19,19 +19,32 @@ KEY_PLAYLIST_INDEX = "playlist/current_index"
 KEY_NOTIFICATIONS_ENABLED = "notifications/enabled"
 KEY_NOTIFICATIONS_TIMEOUT_MS = "notifications/timeout_ms"
 KEY_WINDOW_GEOMETRY = "window/geometry"
+KEY_WINDOW_WIDTH = "window/default_width"
+KEY_WINDOW_HEIGHT = "window/default_height"
 KEY_VIEW_MODE = "ui/view_mode"
 KEY_SHOW_SPECTRUM = "ui/show_spectrum"
 KEY_SHOW_COVER = "ui/show_cover"
+KEY_SHOW_HIDDEN = "ui/show_hidden"
 KEY_THEME = "ui/theme"
 KEY_LANGUAGE = "ui/language"
 KEY_SHORTCUTS = "shortcuts/custom"
 KEY_LIBRARY_FOLDERS = "library/folders"
 KEY_RADIO_STATIONS = "radio/stations"
+KEY_RADIO_OVERRIDES = "radio/overrides"
+KEY_RADIO_HIDDEN = "radio/hidden"
 
 DEFAULT_VOLUME = 100
 DEFAULT_TIMEOUT_MS = 5000
 MIN_TIMEOUT_MS = 1000
 MAX_TIMEOUT_MS = 60000
+
+#: Tamaño por defecto de la ventana principal (Ajustes → Apariencia).
+DEFAULT_WINDOW_WIDTH = 630
+DEFAULT_WINDOW_HEIGHT = 485
+MIN_WINDOW_WIDTH = 480
+MAX_WINDOW_WIDTH = 3840
+MIN_WINDOW_HEIGHT = 360
+MAX_WINDOW_HEIGHT = 2160
 
 #: Vistas posibles del menú Ver.
 VIEW_CANCIONES = "canciones"
@@ -196,6 +209,35 @@ class Settings:
         self.set_value(KEY_WINDOW_GEOMETRY, geometry)
 
     @property
+    def window_width(self) -> int:
+        return self._clamp_int(
+            KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH, MIN_WINDOW_WIDTH, MAX_WINDOW_WIDTH
+        )
+
+    @window_width.setter
+    def window_width(self, value: int) -> None:
+        self.set_value(KEY_WINDOW_WIDTH, max(MIN_WINDOW_WIDTH, min(MAX_WINDOW_WIDTH, int(value))))
+
+    @property
+    def window_height(self) -> int:
+        return self._clamp_int(
+            KEY_WINDOW_HEIGHT, DEFAULT_WINDOW_HEIGHT, MIN_WINDOW_HEIGHT, MAX_WINDOW_HEIGHT
+        )
+
+    @window_height.setter
+    def window_height(self, value: int) -> None:
+        self.set_value(
+            KEY_WINDOW_HEIGHT, max(MIN_WINDOW_HEIGHT, min(MAX_WINDOW_HEIGHT, int(value)))
+        )
+
+    def _clamp_int(self, key: str, default: int, minimum: int, maximum: int) -> int:
+        try:
+            value = int(self._raw(key, default))
+        except (TypeError, ValueError):
+            value = default
+        return max(minimum, min(maximum, value))
+
+    @property
     def view_mode(self) -> str:
         raw = self._raw(KEY_VIEW_MODE, DEFAULT_VIEW_MODE)
         value = str(raw).strip().lower() if raw is not None else ""
@@ -221,6 +263,14 @@ class Settings:
     @show_cover.setter
     def show_cover(self, value: bool) -> None:
         self.set_value(KEY_SHOW_COVER, bool(value))
+
+    @property
+    def show_hidden(self) -> bool:
+        return _as_bool(self._raw(KEY_SHOW_HIDDEN, False), False)
+
+    @show_hidden.setter
+    def show_hidden(self, value: bool) -> None:
+        self.set_value(KEY_SHOW_HIDDEN, bool(value))
 
     @property
     def theme_id(self) -> str:
@@ -289,6 +339,24 @@ class Settings:
     @radio_stations.setter
     def radio_stations(self, value: str) -> None:
         self.set_value(KEY_RADIO_STATIONS, str(value))
+
+    @property
+    def radio_overrides(self) -> str:
+        raw = self._raw(KEY_RADIO_OVERRIDES, "")
+        return str(raw) if raw else ""
+
+    @radio_overrides.setter
+    def radio_overrides(self, value: str) -> None:
+        self.set_value(KEY_RADIO_OVERRIDES, str(value))
+
+    @property
+    def radio_hidden(self) -> str:
+        raw = self._raw(KEY_RADIO_HIDDEN, "")
+        return str(raw) if raw else ""
+
+    @radio_hidden.setter
+    def radio_hidden(self, value: str) -> None:
+        self.set_value(KEY_RADIO_HIDDEN, str(value))
 
 
 _instance: Settings | None = None

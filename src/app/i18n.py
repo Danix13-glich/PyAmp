@@ -249,6 +249,55 @@ _EN: dict[str, str] = {
     "Carátula": "Cover",
     "Artista desconocido": "Unknown artist",
     "Sin título": "Untitled",
+    # --------------------------------------------------- 0.2.0: ventana/temas
+    "Tamaño de la ventana:": "Window size:",
+    "Ancho": "Width",
+    "Alto": "Height",
+    "Tamaño por defecto de la ventana principal": "Default main window size",
+    "Tamaño de ventana: {width}×{height}": "Window size: {width}×{height}",
+    "➕ Crear tema nuevo…": "➕ Create new theme…",
+    "Crear tema nuevo": "Create new theme",
+    "Fondo:": "Background:",
+    "Texto:": "Text:",
+    "Acento:": "Accent:",
+    "Elegir color": "Choose color",
+    "Mostrar archivos ocultos": "Show hidden files",
+    "Los archivos ocultos aparecen al principio, con un «-» delante.": (
+        "Hidden files appear first, prefixed with a “-”."
+    ),
+    "Mostrando archivos ocultos": "Showing hidden files",
+    "Ocultando archivos ocultos": "Hiding hidden files",
+    # ------------------------------------------------- 0.2.0: menú canciones
+    "Mover a favoritos": "Move to favorites",
+    "Quitar de favoritos": "Remove from favorites",
+    "Ocultar": "Hide",
+    "Mostrar": "Show",
+    "Renombrar": "Rename",
+    "Editar metadata": "Edit metadata",
+    "Pista oculta": "Track hidden",
+    "Pista visible": "Track visible",
+    "Nuevo nombre:": "New name:",
+    "Ya existe un archivo con ese nombre": "A file with that name already exists",
+    "No se pudo renombrar: {error}": "Could not rename: {error}",
+    "Renombrado a {name}": "Renamed to {name}",
+    "No se encontró el archivo: {path}": "File not found: {path}",
+    "¿Quitar «{name}» de la biblioteca?\n(El archivo no se borra del disco.)": (
+        "Remove “{name}” from the library?\n(The file is not deleted from disk.)"
+    ),
+    "Pista eliminada de la biblioteca": "Track removed from the library",
+    "No se pudo eliminar: {error}": "Could not remove: {error}",
+    "No se pudo guardar la metadata: {error}": "Could not save metadata: {error}",
+    "Metadata actualizada": "Metadata updated",
+    # -------------------------------------------------- 0.2.0: editor metadata
+    "Título:": "Title:",
+    "Artista:": "Artist:",
+    "Álbum:": "Album:",
+    "Artista del álbum:": "Album artist:",
+    "Año:": "Year:",
+    "N.º de pista:": "Track no.:",
+    "N.º de disco:": "Disc no.:",
+    # ------------------------------------------------------- 0.2.0: radio
+    "Editar Valores": "Edit values",
 }
 
 

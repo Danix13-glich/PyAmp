@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import colorsys
 import json
 import logging
+import re
 import string
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.utils.paths import THEMES_DIR as USER_THEMES_DIR
+
 logger = logging.getLogger(__name__)
 
-#: Carpeta con los JSON de temas.
+#: Carpeta con los JSON de temas incluidos.
 THEMES_DIR = Path(__file__).resolve().parent / "data"
 
 #: Tema que reproduce el look histórico.
@@ -59,6 +63,11 @@ QToolButton { background-color: $button_bg; color: $window_text; border: 1px sol
 QToolButton:hover { background-color: $button_hover; }
 QToolButton:checked { background-color: $accent; color: $accent_text; border-color: $accent; }
 QToolButton::menu-indicator { image: none; }
+QPushButton { background-color: $button_bg; color: $window_text; border: 1px solid $button_border; border-radius: 4px; padding: 4px 12px; }
+QPushButton:hover { background-color: $button_hover; }
+QPushButton:pressed { background-color: $accent; color: $accent_text; border-color: $accent; }
+QPushButton:focus { border-color: $accent; }
+QPushButton:disabled { color: $text_muted; }
 QSlider::groove:horizontal { height: 4px; background-color: $slider_groove; border-radius: 2px; }
 QSlider::handle:horizontal { background-color: $slider_handle; width: 12px; margin: -5px 0; border-radius: 6px; }
 QTableView, QTreeWidget, QListWidget { background-color: $surface_bg; alternate-background-color: $surface_alt; color: $window_text; border: 1px solid $border; gridline-color: $border; }
@@ -133,7 +142,7 @@ def _parse_theme(path: Path) -> Theme:
 def _fallback_theme() -> Theme:
     return Theme(
         id=DEFAULT_THEME_ID,
-        name="Winamp oscuro (actual)",
+        name="Winamp Oscuro",
         native=True,
         spectrum_hue=210,
         colors=dict(_FALLBACK_COLORS),
@@ -142,13 +151,16 @@ def _fallback_theme() -> Theme:
 
 def _read_themes() -> dict[str, Theme]:
     themes: dict[str, Theme] = {}
-    for path in sorted(THEMES_DIR.glob("*.json")):
-        try:
-            theme = _parse_theme(path)
-        except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
-            logger.warning("Tema ignorado (%s): %s", path.name, exc)
+    for directory in (THEMES_DIR, USER_THEMES_DIR):
+        if not directory.is_dir():
             continue
-        themes[theme.id] = theme
+        for path in sorted(directory.glob("*.json")):
+            try:
+                theme = _parse_theme(path)
+            except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+                logger.warning("Tema ignorado (%s): %s", path.name, exc)
+                continue
+            themes[theme.id] = theme
     if DEFAULT_THEME_ID not in themes:
         logger.warning("Falta el tema por defecto %r; se usa el de reserva", DEFAULT_THEME_ID)
         fallback = _fallback_theme()
@@ -159,13 +171,120 @@ def _read_themes() -> dict[str, Theme]:
 _cache: dict[str, Theme] | None = None
 
 
-def load_themes() -> dict[str, Theme]:
+def load_themes(force: bool = False) -> dict[str, Theme]:
     global _cache
-    if _cache is None:
+    if _cache is None or force:
         _cache = _read_themes()
     return dict(_cache)
+
+
+def reload_themes() -> dict[str, Theme]:
+    return load_themes(force=True)
 
 
 def get_theme(theme_id: str) -> Theme:
     themes = load_themes()
     return themes.get(str(theme_id), themes[DEFAULT_THEME_ID])
+
+
+# ------------------------------------------------ temas personalizados (0.2.0)
+def _hex_to_rgb(value: str) -> tuple[int, int, int]:
+    text = str(value).strip().lstrip("#")
+    if len(text) == 3:
+        text = "".join(ch * 2 for ch in text)
+    if len(text) != 6:
+        raise ValueError(f"color no válido: {value!r}")
+    return int(text[0:2], 16), int(text[2:4], 16), int(text[4:6], 16)
+
+
+def _rgb_to_hex(rgb: tuple[int, int, int]) -> str:
+    return "#{:02x}{:02x}{:02x}".format(*(max(0, min(255, int(round(c)))) for c in rgb))
+
+
+def _mix(first: str, second: str, amount: float) -> str:
+    a = _hex_to_rgb(first)
+    b = _hex_to_rgb(second)
+    ratio = max(0.0, min(1.0, float(amount)))
+    return _rgb_to_hex(tuple(round(a[i] + (b[i] - a[i]) * ratio) for i in range(3)))  # type: ignore[arg-type]
+
+
+def _luminance(value: str) -> float:
+    red, green, blue = (channel / 255 for channel in _hex_to_rgb(value))
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+
+
+def _readable_on(background: str) -> str:
+    return "#101014" if _luminance(background) > 0.55 else "#ffffff"
+
+
+def _hue(value: str) -> int:
+    red, green, blue = (channel / 255 for channel in _hex_to_rgb(value))
+    hue, _, _ = colorsys.rgb_to_hsv(red, green, blue)
+    return int(round(hue * 360)) % 360
+
+
+def derive_theme_colors(window_bg: str, window_text: str, accent: str) -> dict[str, str]:
+    dark = _luminance(window_bg) < 0.5
+    surface_bg = _mix(window_bg, window_text, 0.08 if dark else 0.05)
+    surface_alt = _mix(window_bg, window_text, 0.16 if dark else 0.11)
+    border = _mix(window_bg, window_text, 0.28 if dark else 0.24)
+    text_muted = _mix(window_text, window_bg, 0.45)
+    header_bg = _mix(surface_alt, accent, 0.12)
+    return {
+        "header_bg": header_bg,
+        "header_title": window_text,
+        "header_label": _mix(window_text, window_bg, 0.35),
+        "header_format": _mix(window_text, window_bg, 0.5),
+        "header_time": accent,
+        "text_muted": text_muted,
+        "spectrum_bg": window_bg,
+        "spectrum_line": _mix(accent, window_text, 0.35),
+        "icon": window_text,
+        "window_bg": window_bg,
+        "window_text": window_text,
+        "surface_bg": surface_bg,
+        "surface_alt": surface_alt,
+        "border": border,
+        "accent": accent,
+        "accent_text": _readable_on(accent),
+        "button_bg": surface_alt,
+        "button_hover": _mix(window_bg, window_text, 0.26 if dark else 0.2),
+        "button_border": border,
+        "slider_groove": border,
+        "slider_handle": accent,
+    }
+
+
+def _slug(value: str) -> str:
+    text = re.sub(r"[^a-z0-9]+", "-", str(value).strip().lower()).strip("-")
+    return text or "tema"
+
+
+def custom_theme_count() -> int:
+    if not USER_THEMES_DIR.is_dir():
+        return 0
+    return len(list(USER_THEMES_DIR.glob("*.json")))
+
+
+def create_custom_theme(
+    window_bg: str,
+    window_text: str,
+    accent: str,
+    name: str | None = None,
+) -> Theme:
+    colors = derive_theme_colors(window_bg, window_text, accent)
+    base_name = (name or "").strip() or f"Personalizado {custom_theme_count() + 1}"
+    theme_id = f"custom-{_slug(base_name)}"
+    data = {
+        "id": theme_id,
+        "name": base_name,
+        "native": False,
+        "spectrum_hue": _hue(accent),
+        "colors": colors,
+    }
+    USER_THEMES_DIR.mkdir(parents=True, exist_ok=True)
+    path = USER_THEMES_DIR / f"{theme_id}.json"
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    logger.info("Tema personalizado creado: %s (%s)", base_name, path)
+    reload_themes()
+    return _parse_theme(path)
