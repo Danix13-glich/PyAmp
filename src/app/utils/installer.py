@@ -44,6 +44,10 @@ def distributable_path() -> Path | None:
     return None
 
 
+def _home() -> Path:
+    return Path.home()
+
+
 def source_root() -> Path:
     # src/app/utils/installer.py → raíz del repositorio.
     return Path(__file__).resolve().parents[3]
@@ -99,7 +103,7 @@ def _write_desktop_entry(path: Path, exec_line: str, icon: str, workdir: str) ->
 
 
 def _install_linux(report: ProgressCallback) -> InstallResult:
-    home = Path.home()
+    home = _home()
     apps_dir = home / ".local" / "share" / "applications"
     icons_dir = home / ".local" / "share" / "icons" / "hicolor" / "scalable" / "apps"
     apps_dir.mkdir(parents=True, exist_ok=True)
@@ -221,7 +225,7 @@ def _install_macos(report: ProgressCallback) -> InstallResult:
             message=tr("La instalación automática solo está disponible en la app empaquetada."),
         )
     report(10, tr("Copiando la aplicación…"))
-    applications = Path.home() / "Applications"
+    applications = _home() / "Applications"
     applications.mkdir(parents=True, exist_ok=True)
     target = applications / bundle.name
     if target.exists():

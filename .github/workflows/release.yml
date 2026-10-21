@@ -23,7 +23,7 @@ jobs:
       - name: Version
         run: |
           VERSION=$(python -c "import re;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/app/version.py').read()).group(1))")
-          SLUG=${VERSION// /-}
+          SLUG=$(printf '%s' "$VERSION" | sed -E 's/[[:space:]]*beta[[:space:]]*/-beta/')
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "VERSION_SLUG=$SLUG" >> "$GITHUB_ENV"
 
@@ -104,7 +104,7 @@ jobs:
         shell: bash
         run: |
           VERSION=$(python -c "import re;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/app/version.py').read()).group(1))")
-          SLUG=${VERSION// /-}
+          SLUG=$(printf '%s' "$VERSION" | sed -E 's/[[:space:]]*beta[[:space:]]*/-beta/')
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "VERSION_SLUG=$SLUG" >> "$GITHUB_ENV"
 
@@ -149,7 +149,7 @@ jobs:
       - name: Version
         run: |
           VERSION=$(python -c "import re;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/app/version.py').read()).group(1))")
-          SLUG=${VERSION// /-}
+          SLUG=$(printf '%s' "$VERSION" | sed -E 's/[[:space:]]*beta[[:space:]]*/-beta/')
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "VERSION_SLUG=$SLUG" >> "$GITHUB_ENV"
 
@@ -196,7 +196,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          name: PyAmp 0.2.1 beta 14
+          name: PyAmp ${{ github.ref_name }}
           body_path: .github/release_body.md
           files: artifacts/*
           fail_on_unmatched_files: true

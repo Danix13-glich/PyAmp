@@ -21,20 +21,23 @@
 
 ## Features
 
-- 🎵 Local playback (MP3, FLAC, OGG, M4A, WAV...) through libVLC.
-- 📚 SQLite library: scan folders, search and browse songs.
-- ⭐ Favorites with their own view.
-- 📻 Online radio: built-in stations plus your own (name and URL).
-- 📊 Real FFT spectrum in the header (numpy + QPainter).
-- 📝 Synced `.lrc` lyrics and a lyrics editor.
-- 🔔 Native desktop notification on every track change.
+- Local playback (MP3, FLAC, OGG, M4A, WAV...) through libVLC.
+- SQLite library: scan folders, search and browse songs.
+- Favorites with their own view.
+- Online radio: stations found from your location and those you add manually (name and URL).
+- Real FFT spectrum in the header (numpy + QPainter).
+- Synced `.lrc` lyrics and a lyrics editor.
+- Native desktop notification on every track change.
 - 🔀 Shuffle and 🔁 repeat.
-- 🎨 Three visual themes (Winamp dark, Terminal green and Light sand).
-- 🌍 Spanish and English interface.
-- ⌨️ Media keys and MPRIS integration on Linux.
-- 🖥️ Cross-platform: Linux first (Fedora KDE), Windows and macOS.
+- Three visual themes (Winamp dark, Terminal green and Light sand).
+- Spanish, English, Italian and Arabic interface.
+- Media keys and MPRIS integration on Linux.
+- Cross-platform: Linux first (Fedora KDE), Windows and macOS.
 
 ## Installation
+
+You can also download the package for each platform from the
+[Releases](https://github.com/Danix13-glich/PyAmp/releases) page.
 
 ### Fedora (primary platform)
 
@@ -117,7 +120,7 @@ python main.py
 
 ## Contact
 
-For more information or any usage issues, email me at
+For more information or to report a usage issue, write to
 **danieldiaz.dx3@gmail.com**.
 
 ## License

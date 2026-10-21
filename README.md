@@ -21,20 +21,23 @@
 
 ## Funciones
 
-- 🎵 Reproducción local (MP3, FLAC, OGG, M4A, WAV...) con libVLC.
-- 📚 Biblioteca en SQLite: escanear carpetas, buscar y vista de canciones.
-- ⭐ Favoritos con su propia vista.
-- 📻 Radio online: emisoras incluidas y las que añadas tú (nombre y URL).
-- 📊 Espectro FFT real en la cabecera (numpy + QPainter).
-- 📝 Letras `.lrc` sincronizadas y editor de letras.
-- 🔔 Notificación nativa de escritorio en cada cambio de pista.
+- Reproducción local (MP3, FLAC, OGG, M4A, WAV...) con libVLC.
+- Biblioteca en SQLite: escanear carpetas, buscar y vista de canciones.
+- Favoritos con su propia vista.
+- Radio online: emisoras encontradas según tu ubicación y las que añadas manualmente (nombre y URL).
+- Espectro FFT real en la cabecera (numpy + QPainter).
+- Letras `.lrc` sincronizadas y editor de letras.
+- Notificación nativa de escritorio en cada cambio de pista.
 - 🔀 Aleatorio y 🔁 repetir.
-- 🎨 Tres temas visuales (Winamp oscuro, Verde terminal y Arena clara).
-- 🌍 Interfaz en español e inglés.
-- ⌨️ Teclas multimedia e integración MPRIS en Linux.
-- 🖥️ Multiplataforma: Linux primero (Fedora KDE), Windows y macOS.
+- Tres temas visuales (Winamp oscuro, Verde terminal y Arena clara).
+- Interfaz en español, inglés, italiano y árabe.
+- Teclas multimedia e integración MPRIS en Linux.
+- Multiplataforma: Linux primero (Fedora KDE), Windows y macOS.
 
 ## Instalación
+
+También puedes descargar el paquete de cada plataforma desde la página de
+[Releases](https://github.com/Danix13-glich/PyAmp/releases).
 
 ### Fedora
 
@@ -117,7 +120,7 @@ python main.py
 
 ## Contacto
 
-¿Quieres más información o has tenido algún error de uso? Escríbeme a
+Para más información o para informar de un error de uso, escribe a
 **danieldiaz.dx3@gmail.com**.
 
 ## Licencia
