@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -31,7 +32,9 @@ def test_install_linux_appimage_copies_and_creates_entry(
     target = tmp_path / ".local" / "bin" / "pyamp.AppImage"
     assert target.is_file()
     assert target.read_bytes() == exe.read_bytes()
-    assert target.stat().st_mode & 0o111
+    if sys.platform != "win32":
+        # Windows no conserva los bits de ejecución al copiar.
+        assert target.stat().st_mode & 0o111
 
     desktop = tmp_path / ".local" / "share" / "applications" / "pyamp.desktop"
     content = desktop.read_text(encoding="utf-8")

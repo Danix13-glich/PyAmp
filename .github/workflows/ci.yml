@@ -66,6 +66,17 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Run tests
+        shell: bash
         env:
           QT_QPA_PLATFORM: offscreen
-        run: pytest
+        run: |
+          set +e
+          pytest -q --tb=short > pytest.log 2>&1
+          rc=$?
+          tail -80 pytest.log
+          if [ "$rc" -ne 0 ]; then
+            while IFS= read -r line; do
+              echo "::error title=Pytest::$line"
+            done < <(grep -E "^(FAILED|ERROR) " pytest.log | head -30)
+          fi
+          exit "$rc"
