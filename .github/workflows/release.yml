@@ -23,7 +23,9 @@ jobs:
       - name: Version
         run: |
           VERSION=$(python -c "import re;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/app/version.py').read()).group(1))")
+          SLUG=${VERSION// /-}
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "VERSION_SLUG=$SLUG" >> "$GITHUB_ENV"
 
       - name: Install system libraries
         run: |
@@ -40,10 +42,11 @@ jobs:
 
       - name: Build AppImage
         run: |
-          mkdir -p AppDir/usr/bin AppDir/usr/share/icons/hicolor AppDir/usr/lib/vlc
+          mkdir -p AppDir/usr/bin AppDir/usr/share/icons/hicolor/256x256/apps AppDir/usr/share/icons/hicolor/512x512/apps AppDir/usr/lib/vlc
           cp dist/pyamp AppDir/usr/bin/pyamp
-          QT_QPA_PLATFORM=offscreen python packaging/make_icons.py assets/logo.svg AppDir/usr/share/icons/hicolor
-          cp AppDir/usr/share/icons/hicolor/256x256/apps/pyamp.png AppDir/pyamp.png
+          cp packaging/pyamp-256.png AppDir/pyamp.png
+          cp packaging/pyamp-256.png AppDir/usr/share/icons/hicolor/256x256/apps/pyamp.png
+          cp packaging/pyamp-512.png AppDir/usr/share/icons/hicolor/512x512/apps/pyamp.png 2>/dev/null || true
           # libVLC + plugins dentro del AppImage (mejor portabilidad).
           LIBDIR=/usr/lib/x86_64-linux-gnu
           cp -a "$LIBDIR"/libvlc.so* AppDir/usr/lib/ || true
@@ -79,7 +82,7 @@ jobs:
           chmod +x AppDir/AppRun
           wget -q -O appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
-          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir "dist/pyamp_${VERSION}.AppImage"
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir "dist/pyamp_${VERSION_SLUG}.AppImage"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -101,7 +104,9 @@ jobs:
         shell: bash
         run: |
           VERSION=$(python -c "import re;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/app/version.py').read()).group(1))")
+          SLUG=${VERSION// /-}
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "VERSION_SLUG=$SLUG" >> "$GITHUB_ENV"
 
       - name: Install Python dependencies
         run: |
@@ -123,7 +128,7 @@ jobs:
 
       - name: Rename artifact
         shell: bash
-        run: mv dist/pyamp.exe "dist/pyamp_${VERSION}.exe"
+        run: mv dist/pyamp.exe "dist/pyamp_${VERSION_SLUG}.exe"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -144,7 +149,9 @@ jobs:
       - name: Version
         run: |
           VERSION=$(python -c "import re;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/app/version.py').read()).group(1))")
+          SLUG=${VERSION// /-}
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "VERSION_SLUG=$SLUG" >> "$GITHUB_ENV"
 
       - name: Install Python dependencies
         run: |
@@ -166,7 +173,7 @@ jobs:
 
       - name: Create DMG
         run: |
-          hdiutil create -volname "PyAmp" -srcfolder "dist/PyAmp.app" -ov -format UDZO "dist/pyamp_${VERSION}.dmg"
+          hdiutil create -volname "PyAmp" -srcfolder "dist/PyAmp.app" -ov -format UDZO "dist/pyamp_${VERSION_SLUG}.dmg"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -189,6 +196,7 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
+          name: PyAmp 0.2.1 beta 14
           body_path: .github/release_body.md
           files: artifacts/*
           fail_on_unmatched_files: true

@@ -195,7 +195,7 @@ class _PlayerInterface(ServiceInterface):
 
     @dbus_property(access=PropertyAccess.READ)
     def CanSeek(self) -> "b":  # noqa: F821 - tipo D-Bus
-        return True
+        return not self._adapter.player.is_stream
 
     @dbus_property(access=PropertyAccess.READ)
     def CanControl(self) -> "b":  # noqa: F821 - tipo D-Bus

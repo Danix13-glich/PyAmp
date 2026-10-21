@@ -1,7 +1,8 @@
-# PyAmp 0.2.1
+# PyAmp 0.2.1 beta 14
 
 ## Novedades
 
+- **Radio y MPRIS**: al reproducir una emisora, el sistema (widget multimedia, notificaciones y MPRIS) muestra el nombre de la emisora, no la última canción reproducida.
 - **Espectro**: fondo igual al de la cabecera (sin costura) en todos los temas, barras repartidas a todo el ancho y eliminada la última barra que no se usaba.
 - **Vista Radio**: se ocultan Aleatorio, Repetir, Favorito y la barra de posición; el tiempo muestra `∞ / ∞`.
 - **Repetir**: repite la pista actual una vez y se desactiva solo.
@@ -19,4 +20,10 @@
 - **Información ampliada**: autor, sistema operativo, versión de Python, versión de Qt y formato de la app.
 - **Distribuciones**: AppImage para Linux, ejecutable para Windows y DMG para macOS.
 
-> En Linux, el AppImage incluye libVLC; si tu distribución no lo detecta, instala VLC (`sudo dnf install vlc` o `sudo apt install vlc`).
+## Archivos
+
+- `pyamp_0.2.1-beta14.AppImage` — Linux (x86_64)
+- `pyamp_0.2.1-beta14.exe` — Windows (x64)
+- `pyamp_0.2.1-beta14.dmg` — macOS (Intel, funciona también en Apple Silicon con Rosetta)
+
+> En Linux el AppImage incluye libVLC. Si tu distribución no lo detecta, instala VLC (`sudo dnf install vlc` o `sudo apt install vlc`). En Windows y macOS las versiones empaquetadas incluyen VLC; si el audio no arranca, instala VLC desde videolan.org.

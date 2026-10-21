@@ -73,6 +73,8 @@ class Player(QObject):
         self._duration = 0
         self._shuffle = bool(self._settings.shuffle)
         self._repeat = bool(self._settings.repeat)
+        #: Pista sintética de la emisora en curso (None si suena un archivo).
+        self._stream_track: Track | None = None
 
         # NB: `_audio_error_msg` NO se llama `_backend_error` para no pisar
         # la señal Qt `_backend_error`.
@@ -123,7 +125,13 @@ class Player(QObject):
 
     @property
     def current_track(self) -> Track | None:
+        if self._stream_track is not None:
+            return self._stream_track
         return self._playlist.current()
+
+    @property
+    def is_stream(self) -> bool:
+        return self._stream_track is not None
 
     @property
     def is_available(self) -> bool:
@@ -181,6 +189,9 @@ class Player(QObject):
             logger.error("No se pudo reproducir el flujo %s: %s", url, exc)
             self.error_occurred.emit(str(exc))
             return False
+        # La emisora pasa a ser la pista actual: así MPRIS, notificaciones y
+        # la cabecera muestran el nombre de la radio, no la última canción.
+        self._stream_track = track
         self._duration = 0
         self._set_state(STATE_PLAYING)
         self._timer.start()
@@ -231,6 +242,7 @@ class Player(QObject):
                 self._backend.stop()
             except Exception as exc:  # noqa: BLE001
                 logger.warning("stop falló: %s", exc)
+        self._stream_track = None
         self._timer.stop()
         self._duration = 0
         self._set_state(STATE_STOPPED)
@@ -323,6 +335,7 @@ class Player(QObject):
             self._emit_unavailable()
             return False
 
+        self._stream_track = None
         self._merge_metadata(track)
         try:
             backend.load(track.path)
@@ -435,6 +448,7 @@ class Player(QObject):
         self.error_occurred.emit(message)
 
     def _select_without_playing(self, index: int) -> None:
+        self._stream_track = None
         self._playlist.set_current(index)
 
     def _emit_unavailable(self) -> None:

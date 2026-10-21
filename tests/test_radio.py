@@ -193,6 +193,12 @@ def test_player_play_stream_emits_track(qapp: QApplication, tmp_path: Path) -> N
         assert backend.loaded == ["http://example.com/live"]
         assert player.state == STATE_PLAYING
         assert received and received[0].title == "Emisora"
+        # MPRIS y el sistema deben ver la emisora como pista actual.
+        assert player.is_stream is True
+        current = player.current_track
+        assert current is not None and current.title == "Emisora"
+        player.stop()
+        assert player.is_stream is False
     finally:
         player.shutdown()
 
