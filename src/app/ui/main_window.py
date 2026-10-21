@@ -570,6 +570,9 @@ class MainWindow(QMainWindow):
         player.volume_changed.connect(self._on_volume_changed)
         player.error_occurred.connect(self._on_error)
         player.repeat_consumed.connect(self._on_repeat_consumed)
+        # El espectro se alimenta del audio decodificado por VLC, nunca de
+        # una captura del micrófono ni de la salida del sistema.
+        player.spectrum_samples.connect(self._spectrum.push_samples)
         # La biblioteca acumula estadísticas en cada cambio de pista real.
         player.track_changed.connect(self._record_library_play)
 
@@ -885,6 +888,25 @@ class MainWindow(QMainWindow):
         if self._mpris is not None:
             self._mpris.update_metadata(cover or "")
 
+    def _reset_header(self) -> None:
+        # Cabecera en reposo: sin restos de la última canción.
+        self._label_title.setText(WINDOW_TITLE)
+        self._label_title.setToolTip("")
+        self._label_artist.setText("")
+        self._label_artist.setToolTip("")
+        self._label_album.setText("")
+        self._label_album.setVisible(False)
+        self._label_format.setText("")
+        self._cover_label.set_cover(None)
+        self._duration_ms = 0
+        self._slider_seek.setRange(0, 0)
+        self._slider_seek.setValue(0)
+        self._update_time_label(0)
+        self._button_favorite.setEnabled(False)
+        self._button_favorite.setChecked(False)
+        if self._mpris is not None:
+            self._mpris.update_metadata("")
+
     def _on_state_changed(self, state: str) -> None:
         playing = state == STATE_PLAYING
         play_label = self._shortcut_label("play_pause")
@@ -978,6 +1000,13 @@ class MainWindow(QMainWindow):
             action = self._action_view_canciones
         action.setChecked(True)
         self._update_radio_controls(mode == VIEW_RADIO)
+        if mode == VIEW_RADIO:
+            # Al entrar en Radio sin reproducción no se arrastra la canción
+            # anterior: la cabecera vuelve a su estado de reposo.
+            if self._player.state == STATE_STOPPED and not self._player.is_stream:
+                self._reset_header()
+        elif not self._player.is_stream and self._player.current_track is not None:
+            self._show_track(self._player.current_track)
         if save:
             self._settings.view_mode = mode
 
@@ -1547,7 +1576,10 @@ class MainWindow(QMainWindow):
                     track.duration_ms = info.duration_ms or track.duration_ms
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("Metadatos de restauración omitidos: %s", exc)
-                self._show_track(track)
+                if self._settings.view_mode == VIEW_RADIO:
+                    self._reset_header()
+                else:
+                    self._show_track(track)
 
         self._slider_volume.blockSignals(True)
         self._slider_volume.setValue(self._settings.volume)

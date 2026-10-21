@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from app.utils import installer
+from app.utils.installer import InstallResult
 
 
 def _fake_executable(tmp_path: Path, name: str = "pyamp_0.2.1-beta14.AppImage") -> Path:
@@ -132,3 +133,20 @@ def test_install_unsupported_operating_system(monkeypatch: pytest.MonkeyPatch) -
 def test_remove_installer_handles_missing_path(tmp_path: Path) -> None:
     assert installer.remove_installer("") is False
     assert installer.remove_installer(str(tmp_path / "no-existe.AppImage")) is False
+
+
+def test_install_dialog_holds_ninety_percent(qapp: object, qtbot: object) -> None:
+    from app.ui.install_dialog import InstallDialog
+
+    dialog = InstallDialog()
+    dialog._on_progress(50, "Copiando")  # noqa: SLF001 - tests
+    assert dialog._bar.value() == 50  # noqa: SLF001
+
+    dialog._on_progress(100, "Listo")  # noqa: SLF001
+    assert dialog._bar.value() == 90  # noqa: SLF001
+    result = InstallResult(ok=True, message="ok")
+    dialog._on_ok(result)  # noqa: SLF001
+    assert dialog.install_result is None  # aún no ha pasado el segundo
+
+    qtbot.wait(1100)  # type: ignore[attr-defined]
+    assert dialog.install_result is result

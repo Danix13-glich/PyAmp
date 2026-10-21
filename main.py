@@ -13,6 +13,12 @@ _SRC_DIR = Path(__file__).resolve().parent / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+# Antes de importar PySide6/vlc: si a este equipo le faltan paquetes, se
+# instalan solos en un entorno local y la app se reinicia una vez.
+from app.utils.deps import ensure_dependencies  # noqa: E402
+
+ensure_dependencies(Path(__file__).resolve())
+
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtGui import QIcon  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402

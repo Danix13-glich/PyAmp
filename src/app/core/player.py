@@ -53,6 +53,8 @@ class Player(QObject):
     duration_changed = Signal(int)
     volume_changed = Signal(int)
     error_occurred = Signal(str)
+    #: Bloque mono float32 para el espectro (sale del hilo de libVLC).
+    spectrum_samples = Signal(object)
     #: El repetir se consumió (la pista actual se repitió una vez y se apagó).
     repeat_consumed = Signal()
 
@@ -95,6 +97,10 @@ class Player(QObject):
         if self._backend is not None:
             self._backend.on_finished = self._on_backend_finished
             self._backend.on_error = self._on_backend_error
+            try:
+                self._backend.set_spectrum_sink(self.spectrum_samples.emit)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Sin análisis de espectro: %s", exc)
             try:
                 self._backend.set_volume(self._settings.volume)
                 if self._settings.muted:

@@ -457,13 +457,14 @@ def test_spectrum_widget_paints_and_computes_levels(qapp: QApplication) -> None:
 
 def test_spectrum_widget_start_stop_and_shutdown_are_safe(qapp: QApplication) -> None:
     widget = SpectrumWidget()
-    widget.set_playing(True)  # intenta parec/pactl; si faltan → reposo
-    assert widget.available in (True, False, None)
+    widget.set_playing(True)
+    assert widget.available is None  # aún no llegaron muestras del backend
+    widget.push_samples(np.full(CHUNK_FRAMES, 0.1, dtype=np.float32))
+    assert widget.available is True
     widget.set_playing(False)
 
     widget.shutdown()
     widget.shutdown()  # idempotente (closeEvent puede repetirse en tests)
-    assert widget.available is not None  # ya quedó resuelto
 
 
 def test_spectrum_widget_is_compact_and_blue_bars(qapp: QApplication) -> None:
@@ -676,7 +677,7 @@ def test_settings_info_shows_author_os_and_install(
     assert "Danix13-glich" in texts
     assert any("(" in text and ")" in text for text in texts)  # sistema
     assert dialog._button_install.text() == "Instalar"  # noqa: SLF001
-    assert dialog._install_progress.isVisible() is False  # noqa: SLF001
+    assert not hasattr(dialog, "_install_progress")  # la barra vive en su ventana
 
 
 def test_installer_source_mode_creates_desktop_entry(
@@ -884,11 +885,13 @@ def test_lyrics_editor_edits_existing_sidecar(qapp: QApplication, tmp_path: Path
 def test_spectrum_stop_capture_keeps_availability(qapp: QApplication) -> None:
     widget = SpectrumWidget()
     widget.set_playing(True)
+    widget.push_samples(np.full(CHUNK_FRAMES, 0.1, dtype=np.float32))
     widget.stop_capture()
-    assert widget._process is None  # noqa: SLF001 - tests (parec terminado)
-    # Sigue pudiendo relanzarse (set_playing(True) de nuevo).
+    assert widget._pending is None  # noqa: SLF001 - tests
+    # Sigue pudiendo reanudarse (set_playing(True) de nuevo).
     widget.set_playing(False)
     widget.set_playing(True)
+    assert widget.available is True
     widget.shutdown()
 
 

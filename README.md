@@ -39,6 +39,12 @@
 También puedes descargar el paquete de cada plataforma desde la página de
 [Releases](https://github.com/Danix13-glich/PyAmp/releases).
 
+Si ejecutas desde el código y falta algún paquete de Python, la propia app los
+instala la primera vez en un entorno local (`~/.local/share/PyAmp/runtime`) y
+se reinicia sola; no hace falta crear el `.venv` ni ejecutar `pip`. En Linux
+libVLC sigue siendo una librería del sistema (o usa el AppImage, que ya la
+incluye). En Windows, si no hay VLC instalado, se descarga una copia portátil.
+
 ### Fedora
 
 ```bash

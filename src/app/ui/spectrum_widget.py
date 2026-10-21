@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-import contextlib
 import logging
-import shutil
-import subprocess
-import threading
 
 import numpy as np
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QTimer
 from PySide6.QtGui import QColor, QPainter, QPaintEvent
 from PySide6.QtWidgets import QWidget
+
+from app.audio.base_backend import SPECTRUM_CHUNK, SPECTRUM_RATE
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +15,9 @@ logger = logging.getLogger(__name__)
 #: agudo no se usaba y se eliminó para no dejar una barra muerta).
 BAR_COUNT = 11
 
-#: Parámetros de la captura (float32 mono).
-SAMPLE_RATE = 44100
-CHUNK_FRAMES = 2048  # muestras por FFT (~46 ms)
-_FLOAT32_BYTES = 4
+#: Parámetros del análisis (float32 mono).
+SAMPLE_RATE = SPECTRUM_RATE
+CHUNK_FRAMES = SPECTRUM_CHUNK
 
 #: Repintado (~30 fps) y caída de las barras.
 TICK_MS = 33
@@ -46,10 +43,10 @@ BAR_HUE = 210
 DEFAULT_BG = "#181818"
 DEFAULT_LINE = "#464646"
 
-_NO_SIGNAL_TEXT = "Espectro no disponible (se requiere parec/pactl)"
-
 
 class SpectrumWidget(QWidget):
+    # El audio llega del hilo de libVLC como muestras ya decodificadas:
+    # nunca se captura el micrófono ni la salida del sistema.
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -63,10 +60,7 @@ class SpectrumWidget(QWidget):
         self._hue = BAR_HUE
         self._bg_color = QColor(DEFAULT_BG)
         self._line_color = QColor(DEFAULT_LINE)
-        self._process: subprocess.Popen[bytes] | None = None
-        self._reader: threading.Thread | None = None
-        self._stop_flag = threading.Event()
-        # None = aún no probado; False = sin captura disponible.
+        # None = aún sin datos; True = el backend entrega audio analizable.
         self._available: bool | None = None
 
         # Máscaras de banda precomputadas (el tamaño de chunk es fijo).
@@ -86,13 +80,20 @@ class SpectrumWidget(QWidget):
             return
         self._playing = playing
         if playing:
-            self._start_capture()
             self._timer.start()
         else:
             self._timer.stop()
-            self.stop_capture()
+            self._pending = None
             self._bars *= DECAY
             self.update()
+
+    def push_samples(self, chunk: np.ndarray) -> None:
+        if chunk.size == 0:
+            return
+        # Llega del hilo de VLC (señal encolada): solo se guarda el último
+        # bloque y el temporizador de la UI hace la FFT.
+        self._available = True
+        self._pending = np.asarray(chunk, dtype=np.float32)
 
     def set_hue(self, hue: int) -> None:
         self._hue = max(0, min(359, int(hue)))
@@ -112,91 +113,13 @@ class SpectrumWidget(QWidget):
         return self._available
 
     def stop_capture(self) -> None:
-        self._stop_flag.set()
-        process = self._process
-        if process is not None and process.poll() is None:
-            with contextlib.suppress(Exception):
-                process.terminate()
-        if self._reader is not None:
-            with contextlib.suppress(RuntimeError):
-                self._reader.join(timeout=1.0)
-        self._process = None
-        self._reader = None
+        # Se conserva el nombre por compatibilidad: aquí solo se descarta el
+        # último bloque pendiente.
         self._pending = None
 
     def shutdown(self) -> None:
         self._timer.stop()
         self.stop_capture()
-
-    # ------------------------------------------------------------- captura
-    def _start_capture(self) -> None:
-        if self._process is not None or self._available is False:
-            return
-        try:
-            monitor = self._default_monitor()
-            if monitor is None:
-                self._available = False
-                logger.info("Espectro: sin monitor de audio (falta pactl/parec)")
-                return
-            self._process = subprocess.Popen(
-                [
-                    "parec",
-                    f"--device={monitor}",
-                    "--format=float32le",
-                    f"--rate={SAMPLE_RATE}",
-                    "--channels=1",
-                    "--raw",
-                    "--latency=50",
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
-        except Exception as exc:  # noqa: BLE001 - el espectro es opcional
-            self._available = False
-            logger.info("Espectro: captura no disponible (%s)", exc)
-            return
-        self._available = True
-        self._stop_flag.clear()
-        self._reader = threading.Thread(target=self._read_loop, name="pyamp-spectrum", daemon=True)
-        self._reader.start()
-        logger.info("Espectro: captura iniciada (monitor del sink por defecto)")
-
-    @staticmethod
-    def _default_monitor() -> str | None:
-        pactl = shutil.which("pactl")
-        if pactl is None or shutil.which("parec") is None:
-            return None
-        try:
-            result = subprocess.run(
-                [pactl, "get-default-sink"],
-                capture_output=True,
-                text=True,
-                timeout=3,
-                check=False,
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.debug("pactl falló: %s", exc)
-            return None
-        sink = result.stdout.strip()
-        return f"{sink}.monitor" if sink else None
-
-    def _read_loop(self) -> None:
-        process = self._process
-        if process is None or process.stdout is None:
-            return
-        wanted = CHUNK_FRAMES * _FLOAT32_BYTES
-        buffer = bytearray()
-        while not self._stop_flag.is_set():
-            try:
-                data = process.stdout.read1(8192)  # type: ignore[attr-defined]
-            except (OSError, ValueError):
-                break
-            if not data:
-                break
-            buffer.extend(data)
-            if len(buffer) >= wanted:
-                self._pending = np.frombuffer(bytes(buffer[:wanted]), dtype=np.float32)
-                del buffer[:wanted]
 
     # ------------------------------------------------------------- repintado
     def _tick(self) -> None:
@@ -234,10 +157,6 @@ class SpectrumWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect()
         painter.fillRect(rect, self._bg_color)
-        if self._available is False:
-            painter.setPen(QColor(150, 150, 150))
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, _NO_SIGNAL_TEXT)
-            return
 
         gap = 2
         width = rect.width()

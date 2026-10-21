@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import logging
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .base_backend import AudioBackend, BackendError
+import numpy as np
+
+from .base_backend import SPECTRUM_CHUNK, SPECTRUM_RATE, AudioBackend, BackendError
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +48,70 @@ class VlcBackend(AudioBackend):
         self._audio_dirty = False
         self._has_media = False
 
+        # Segundo reproductor solo para el espectro: decodifica el mismo
+        # audio y entrega las muestras por callback, sin tocar la salida de
+        # sonido ni capturar el micrófono. Los callbacks de audio de libVLC
+        # sustituyen la salida de ese reproductor, no la del principal.
+        self._analyzer: Any = None
+        self._analyzer_cb: Any = None
+        self._spectrum_sink: Callable[[np.ndarray], None] | None = None
+        self._spectrum_buffer = np.zeros(0, dtype=np.float32)
+        self._init_analyzer()
+
         events = self._player.event_manager()
         events.event_attach(self._vlc.EventType.MediaPlayerEndReached, self._on_end)
         events.event_attach(self._vlc.EventType.MediaPlayerEncounteredError, self._on_error_event)
         logger.info("Backend VLC listo (libVLC %s)", self._vlc.libvlc_get_version())
+
+    # --------------------------------------------------------------- espectro
+    def set_spectrum_sink(self, sink: Callable[[np.ndarray], None] | None) -> None:
+        self._spectrum_sink = sink
+        self._spectrum_buffer = np.zeros(0, dtype=np.float32)
+
+    def _init_analyzer(self) -> None:
+        try:
+            analyzer = self._instance.media_player_new()
+            if analyzer is None:
+                return
+            analyzer.audio_set_format("S16N", SPECTRUM_RATE, 1)
+            callback = self._vlc.CallbackDecorators.AudioPlayCb(self._on_analyzer_audio)
+            analyzer.audio_set_callbacks(callback, None, None, None, None, None)
+            self._analyzer = analyzer
+            self._analyzer_cb = callback
+            logger.info("Espectro: análisis en paralelo con libVLC (sin captura)")
+        except Exception as exc:  # noqa: BLE001 - el espectro es opcional
+            self._analyzer = None
+            self._analyzer_cb = None
+            logger.info("Espectro no disponible: %s", exc)
+
+    def _on_analyzer_audio(self, _data: int, samples: int, count: int, _pts: int) -> None:
+        sink = self._spectrum_sink
+        if sink is None or not samples or count <= 0:
+            return
+        try:
+            raw = ctypes.string_at(samples, int(count) * 2)
+        except Exception:  # noqa: BLE001 - puntero inválido al cerrar
+            return
+        chunk = np.frombuffer(raw, dtype="<i2").astype(np.float32) / 32768.0
+        if chunk.size == 0:
+            return
+        buffer = np.concatenate((self._spectrum_buffer, chunk))
+        while buffer.size >= SPECTRUM_CHUNK:
+            block = buffer[:SPECTRUM_CHUNK]
+            buffer = buffer[SPECTRUM_CHUNK:]
+            try:
+                sink(block)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("Espectro: fallo al entregar muestras (%s)", exc)
+                break
+        self._spectrum_buffer = buffer
+
+    def _load_analyzer(self, media: Any) -> None:
+        if self._analyzer is None:
+            return
+        with contextlib.suppress(Exception):
+            self._analyzer.set_media(media)
+        self._spectrum_buffer = np.zeros(0, dtype=np.float32)
 
     # ------------------------------------------------------------------ carga
     def load(self, path: str) -> None:
@@ -62,6 +126,7 @@ class VlcBackend(AudioBackend):
         if media is None:
             raise BackendError(f"VLC no pudo cargar: {path}")
         self._player.set_media(media)
+        self._load_analyzer(media)
         self._has_media = True
         with contextlib.suppress(Exception):  # el player mantiene su referencia
             media.release()
@@ -69,15 +134,28 @@ class VlcBackend(AudioBackend):
     # ------------------------------------------------------------- transporte
     def play(self) -> None:
         self._player.play()
+        if self._analyzer is not None:
+            with contextlib.suppress(Exception):
+                self._analyzer.play()
 
     def pause(self) -> None:
         self._player.set_pause(1)
+        if self._analyzer is not None:
+            with contextlib.suppress(Exception):
+                self._analyzer.set_pause(1)
 
     def resume(self) -> None:
         self._player.set_pause(0)
+        if self._analyzer is not None:
+            with contextlib.suppress(Exception):
+                self._analyzer.set_pause(0)
 
     def stop(self) -> None:
         self._player.stop()
+        if self._analyzer is not None:
+            with contextlib.suppress(Exception):
+                self._analyzer.stop()
+        self._spectrum_buffer = np.zeros(0, dtype=np.float32)
 
     def seek(self, position_ms: int) -> None:
         if not self._has_media:
@@ -87,6 +165,9 @@ class VlcBackend(AudioBackend):
         if length and length > 0:
             target = min(target, int(length))
         applied = self._player.set_time(target)
+        if self._analyzer is not None:
+            with contextlib.suppress(Exception):
+                self._analyzer.set_time(target)
         if applied is not None and applied >= 0:
             return
         # Fallback: posición relativa (0..1) cuando set_time no aplica.
@@ -152,6 +233,12 @@ class VlcBackend(AudioBackend):
             self._player.stop()
         except Exception as exc:  # noqa: BLE001
             logger.debug("release: stop falló (%s)", exc)
+        if self._analyzer is not None:
+            with contextlib.suppress(Exception):
+                self._analyzer.stop()
+                self._analyzer.release()
+            self._analyzer = None
+            self._analyzer_cb = None
         try:
             self._instance.release()
         except Exception as exc:  # noqa: BLE001
@@ -159,6 +246,9 @@ class VlcBackend(AudioBackend):
 
     # ----------------------------------------------------------------- eventos
     def _on_end(self, _event: Any) -> None:
+        if self._analyzer is not None:
+            with contextlib.suppress(Exception):
+                self._analyzer.stop()
         if self.on_finished is not None:
             self.on_finished()
 

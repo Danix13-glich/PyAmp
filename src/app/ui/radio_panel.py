@@ -112,19 +112,7 @@ class RadioPanel(QWidget):
         self._button_play.clicked.connect(self._play_selected)
         self._button_stop = QPushButton(tr("Detener"))
         self._button_stop.clicked.connect(self.stop_requested.emit)
-        self._button_add = QPushButton(tr("Añadir"))
-        self._button_add.clicked.connect(self._on_add)
-        self._button_edit = QPushButton(tr("Editar"))
-        self._button_edit.clicked.connect(self._on_edit)
-        self._button_remove = QPushButton(tr("Eliminar"))
-        self._button_remove.clicked.connect(self._on_remove)
-        for button in (
-            self._button_play,
-            self._button_stop,
-            self._button_add,
-            self._button_edit,
-            self._button_remove,
-        ):
+        for button in (self._button_play, self._button_stop):
             buttons.addWidget(button)
         buttons.addStretch(1)
         layout.addLayout(buttons)
@@ -224,28 +212,6 @@ class RadioPanel(QWidget):
             self._status.setText(tr("Selecciona una emisora"))
             return
         self.play_requested.emit(station)
-
-    def _on_add(self) -> None:
-        dialog = RadioStationDialog(parent=self)
-        if dialog.exec() != QDialog.DialogCode.Accepted:
-            return
-        station = dialog.station()
-        if not station.name or not station.url:
-            return
-        if not self._radio.add(station):
-            QMessageBox.information(self, tr("Radio"), tr("Esa emisora ya está en la lista."))
-            return
-        self.refresh()
-
-    def _on_edit(self) -> None:
-        self._edit_station(self.selected_station())
-
-    def _on_remove(self) -> None:
-        station = self.selected_station()
-        if station is None:
-            self._status.setText(tr("Selecciona una emisora"))
-            return
-        self._confirm_remove(station)
 
     def _on_context_menu(self, position: QPoint) -> None:
         row = self._table.rowAt(position.y())

@@ -19,7 +19,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
-    QProgressBar,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -47,12 +46,8 @@ from app.themes import (
     load_themes,
     rename_custom_theme,
 )
-from app.utils.installer import (
-    InstallResult,
-    InstallWorker,
-    is_frozen,
-    remove_installer,
-)
+from app.ui.install_dialog import InstallDialog
+from app.utils.installer import is_frozen, remove_installer
 
 #: Valor centinela del combo de temas para «crear uno nuevo».
 CREATE_THEME_SENTINEL = "__create_theme__"
@@ -110,7 +105,6 @@ class SettingsDialog(QDialog):
         self.setWindowTitle(tr("Ajustes de PyAmp"))
         self.setModal(True)
         self.setMinimumSize(*DIALOG_MIN_SIZE)
-        self._install_worker: InstallWorker | None = None
 
         layout = QVBoxLayout(self)
         tabs = QTabWidget()
@@ -206,15 +200,6 @@ class SettingsDialog(QDialog):
         self._button_install.setToolTip(tr("Instala PyAmp en este equipo"))
         self._button_install.clicked.connect(self._on_install)
         install_layout.addWidget(self._button_install)
-        self._install_progress = QProgressBar()
-        self._install_progress.setRange(0, 100)
-        self._install_progress.setValue(0)
-        self._install_progress.setVisible(False)
-        install_layout.addWidget(self._install_progress)
-        self._install_status = QLabel("")
-        self._install_status.setWordWrap(True)
-        self._install_status.setVisible(False)
-        install_layout.addWidget(self._install_status)
         info_form.addRow(install_box)
         outer.addWidget(info_group)
         outer.addStretch(1)
@@ -387,33 +372,24 @@ class SettingsDialog(QDialog):
 
     # ------------------------------------------------------------ instalación
     def _on_install(self) -> None:
-        if self._install_worker is not None and self._install_worker.isRunning():
-            return
         self._button_install.setEnabled(False)
-        self._install_progress.setValue(0)
-        self._install_progress.setVisible(True)
-        self._install_status.setVisible(True)
-        self._install_status.setText(tr("Instalando PyAmp…"))
-        worker = InstallWorker(self)
-        self._install_worker = worker
-        worker.progress.connect(self._on_install_progress)
-        worker.finished_ok.connect(self._on_install_done)
-        worker.failed.connect(self._on_install_failed)
-        worker.finished.connect(self._on_install_finished)
-        worker.start()
+        dialog = InstallDialog(self)
+        dialog.start()
+        dialog.exec()
+        self._button_install.setEnabled(True)
 
-    def _on_install_progress(self, value: int, text: str) -> None:
-        self._install_progress.setValue(value)
-        if text:
-            self._install_status.setText(text)
-
-    def _on_install_done(self, result: object) -> None:
-        self._install_progress.setValue(100)
-        installed = result if isinstance(result, InstallResult) else None
+        if dialog.error:
+            QMessageBox.warning(
+                self,
+                tr("Instalación de PyAmp"),
+                tr("No se pudo instalar: {error}").format(error=dialog.error),
+            )
+            return
+        installed = dialog.install_result
         if installed is None:
             return
-        self._install_status.setText(installed.message)
         if not (installed.installer_removable and installed.installer_path):
+            QMessageBox.information(self, tr("Instalación completada"), installed.message)
             return
         answer = QMessageBox.question(
             self,
@@ -424,25 +400,12 @@ class SettingsDialog(QDialog):
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        if remove_installer(installed.installer_path):
-            self._install_status.setText(tr("Archivo instalador eliminado."))
-        else:
-            self._install_status.setText(tr("No se pudo eliminar el archivo instalador."))
-
-    def _on_install_failed(self, message: str) -> None:
-        self._install_progress.setVisible(False)
-        self._install_status.setText(tr("No se pudo instalar: {error}").format(error=message))
-
-    def _on_install_finished(self) -> None:
-        self._button_install.setEnabled(True)
-        self._install_worker = None
-
-    def done(self, result: int) -> None:
-        # Nunca destruir el diálogo con el hilo de instalación activo.
-        worker = self._install_worker
-        if worker is not None and worker.isRunning():
-            worker.wait()
-        super().done(result)
+        if not remove_installer(installed.installer_path):
+            QMessageBox.warning(
+                self,
+                tr("Instalación de PyAmp"),
+                tr("No se pudo eliminar el archivo instalador."),
+            )
 
     def _build_shortcuts(self, settings: Settings) -> QWidget:
         page = QWidget()
