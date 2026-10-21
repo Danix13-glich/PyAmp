@@ -340,6 +340,38 @@ _EN: dict[str, str] = {
     "Solo se pueden eliminar los temas personalizados": "Only custom themes can be deleted",
     "Tema eliminado": "Theme deleted",
     "Tema renombrado": "Theme renamed",
+    # ------------------------------------------------ 0.2.1: información/instalar
+    "Autor:": "Author:",
+    "Sistema:": "System:",
+    "Python:": "Python:",
+    "Qt:": "Qt:",
+    "Formato:": "Format:",
+    "Código fuente (Python)": "Source code (Python)",
+    "Ejecutable de Windows (.exe)": "Windows executable (.exe)",
+    "Aplicación de macOS (.app)": "macOS application (.app)",
+    "AppImage de Linux": "Linux AppImage",
+    "Instalar": "Install",
+    "Instala PyAmp en este equipo": "Install PyAmp on this computer",
+    "Instalando PyAmp…": "Installing PyAmp…",
+    "Preparando la instalación…": "Preparing installation…",
+    "Copiando archivos…": "Copying files…",
+    "Copiando la aplicación…": "Copying the application…",
+    "Creando el acceso directo…": "Creating the shortcut…",
+    "Actualizando el menú de aplicaciones…": "Updating the applications menu…",
+    "Instalación completada.": "Installation complete.",
+    "PyAmp se ha instalado correctamente.": "PyAmp was installed successfully.",
+    "Instalación completada": "Installation complete",
+    "¿Quieres eliminar el archivo instalador?\n{path}": (
+        "Do you want to delete the installer file?\n{path}"
+    ),
+    "Archivo instalador eliminado.": "Installer file deleted.",
+    "No se pudo eliminar el archivo instalador.": "Could not delete the installer file.",
+    "No se pudo instalar: {error}": "Could not install: {error}",
+    "No se encontró la carpeta de aplicaciones.": "The applications folder was not found.",
+    "La instalación automática solo está disponible en la app empaquetada.": (
+        "Automatic installation is only available in the packaged app."
+    ),
+    "Sistema operativo no compatible.": "Unsupported operating system.",
 }
 
 #: Traducciones al italiano (misma clave: la cadena española).
@@ -673,6 +705,40 @@ _IT: dict[str, str] = {
     ),
     "Tema eliminado": "Tema eliminato",
     "Tema renombrado": "Tema rinominato",
+    # ------------------------------------------------ 0.2.1: información/instalar
+    "Autor:": "Autore:",
+    "Sistema:": "Sistema:",
+    "Python:": "Python:",
+    "Qt:": "Qt:",
+    "Formato:": "Formato:",
+    "Código fuente (Python)": "Codice sorgente (Python)",
+    "Ejecutable de Windows (.exe)": "Eseguibile di Windows (.exe)",
+    "Aplicación de macOS (.app)": "Applicazione macOS (.app)",
+    "AppImage de Linux": "AppImage per Linux",
+    "Instalar": "Installa",
+    "Instala PyAmp en este equipo": "Installa PyAmp su questo computer",
+    "Instalando PyAmp…": "Installazione di PyAmp…",
+    "Preparando la instalación…": "Preparazione dell'installazione…",
+    "Copiando archivos…": "Copia dei file…",
+    "Copiando la aplicación…": "Copia dell'applicazione…",
+    "Creando el acceso directo…": "Creazione del collegamento…",
+    "Actualizando el menú de aplicaciones…": "Aggiornamento del menu delle applicazioni…",
+    "Instalación completada.": "Installazione completata.",
+    "PyAmp se ha instalado correctamente.": "PyAmp è stato installato correttamente.",
+    "Instalación completada": "Installazione completata",
+    "¿Quieres eliminar el archivo instalador?\n{path}": (
+        "Vuoi eliminare il file di installazione?\n{path}"
+    ),
+    "Archivo instalador eliminado.": "File di installazione eliminato.",
+    "No se pudo eliminar el archivo instalador.": (
+        "Impossibile eliminare il file di installazione."
+    ),
+    "No se pudo instalar: {error}": "Impossibile installare: {error}",
+    "No se encontró la carpeta de aplicaciones.": "Cartella delle applicazioni non trovata.",
+    "La instalación automática solo está disponible en la app empaquetada.": (
+        "L'installazione automatica è disponibile solo nell'app pacchettizzata."
+    ),
+    "Sistema operativo no compatible.": "Sistema operativo non supportato.",
 }
 
 #: Traducciones al árabe (misma clave: la cadena española).
@@ -994,6 +1060,36 @@ _AR: dict[str, str] = {
     "Solo se pueden eliminar los temas personalizados": "يمكن حذف السمات المخصصة فقط",
     "Tema eliminado": "تم حذف السمة",
     "Tema renombrado": "تمت إعادة تسمية السمة",
+    # ------------------------------------------------ 0.2.1: información/instalar
+    "Autor:": "المؤلف:",
+    "Sistema:": "النظام:",
+    "Python:": "Python:",
+    "Qt:": "Qt:",
+    "Formato:": "التنسيق:",
+    "Código fuente (Python)": "الشيفرة المصدرية (Python)",
+    "Ejecutable de Windows (.exe)": "ملف تنفيذي لويندوز (.exe)",
+    "Aplicación de macOS (.app)": "تطبيق macOS (.app)",
+    "AppImage de Linux": "AppImage لينكس",
+    "Instalar": "تثبيت",
+    "Instala PyAmp en este equipo": "ثبّت PyAmp على هذا الجهاز",
+    "Instalando PyAmp…": "جارٍ تثبيت PyAmp…",
+    "Preparando la instalación…": "جارٍ تحضير التثبيت…",
+    "Copiando archivos…": "جارٍ نسخ الملفات…",
+    "Copiando la aplicación…": "جارٍ نسخ التطبيق…",
+    "Creando el acceso directo…": "جارٍ إنشاء الاختصار…",
+    "Actualizando el menú de aplicaciones…": "جارٍ تحديث قائمة التطبيقات…",
+    "Instalación completada.": "اكتمل التثبيت.",
+    "PyAmp se ha instalado correctamente.": "تم تثبيت PyAmp بنجاح.",
+    "Instalación completada": "اكتمل التثبيت",
+    "¿Quieres eliminar el archivo instalador?\n{path}": ("هل تريد حذف ملف التثبيت؟\n{path}"),
+    "Archivo instalador eliminado.": "تم حذف ملف التثبيت.",
+    "No se pudo eliminar el archivo instalador.": "تعذّر حذف ملف التثبيت.",
+    "No se pudo instalar: {error}": "تعذّر التثبيت: {error}",
+    "No se encontró la carpeta de aplicaciones.": "لم يتم العثور على مجلد التطبيقات.",
+    "La instalación automática solo está disponible en la app empaquetada.": (
+        "التثبيت التلقائي متاح فقط في التطبيق المعبّأ."
+    ),
+    "Sistema operativo no compatible.": "نظام التشغيل غير مدعوم.",
 }
 
 #: Traducciones por código de idioma.

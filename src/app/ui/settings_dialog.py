@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
+import platform
+import sys
+
+from PySide6 import __version__ as pyside_version
+from PySide6.QtCore import Qt, Signal, qVersion
 from PySide6.QtGui import QColor, QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -15,6 +19,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMessageBox,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -42,6 +47,12 @@ from app.themes import (
     load_themes,
     rename_custom_theme,
 )
+from app.utils.installer import (
+    InstallResult,
+    InstallWorker,
+    is_frozen,
+    remove_installer,
+)
 
 #: Valor centinela del combo de temas para «crear uno nuevo».
 CREATE_THEME_SENTINEL = "__create_theme__"
@@ -67,6 +78,16 @@ SHORTCUT_LABELS: dict[str, str] = {
 DIALOG_MIN_SIZE = (620, 560)
 
 
+def _distribution_kind() -> str:
+    if not is_frozen():
+        return tr("Código fuente (Python)")
+    if sys.platform.startswith("win"):
+        return tr("Ejecutable de Windows (.exe)")
+    if sys.platform == "darwin":
+        return tr("Aplicación de macOS (.app)")
+    return tr("AppImage de Linux")
+
+
 class SettingsDialog(QDialog):
 
     apply_language = Signal(str)
@@ -89,6 +110,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle(tr("Ajustes de PyAmp"))
         self.setModal(True)
         self.setMinimumSize(*DIALOG_MIN_SIZE)
+        self._install_worker: InstallWorker | None = None
 
         layout = QVBoxLayout(self)
         tabs = QTabWidget()
@@ -155,6 +177,14 @@ class SettingsDialog(QDialog):
         info_group = QGroupBox(tr("Información"))
         info_form = QFormLayout(info_group)
         info_form.addRow(tr("Versión:"), QLabel(version))
+        info_form.addRow(tr("Autor:"), QLabel("Danix13-glich"))
+        info_form.addRow(
+            tr("Sistema:"),
+            QLabel(f"{platform.system()} {platform.release()} ({platform.machine()})"),
+        )
+        info_form.addRow(tr("Python:"), QLabel(platform.python_version()))
+        info_form.addRow(tr("Qt:"), QLabel(f"PySide6 {pyside_version} (Qt {qVersion()})"))
+        info_form.addRow(tr("Formato:"), QLabel(_distribution_kind()))
         info_form.addRow(tr("Notificador:"), QLabel(notifier_backend))
         if library_stats is not None:
             info_form.addRow(
@@ -167,6 +197,25 @@ class SettingsDialog(QDialog):
                     )
                 ),
             )
+
+        install_box = QWidget()
+        install_layout = QVBoxLayout(install_box)
+        install_layout.setContentsMargins(0, 6, 0, 0)
+        install_layout.setSpacing(4)
+        self._button_install = QPushButton(tr("Instalar"))
+        self._button_install.setToolTip(tr("Instala PyAmp en este equipo"))
+        self._button_install.clicked.connect(self._on_install)
+        install_layout.addWidget(self._button_install)
+        self._install_progress = QProgressBar()
+        self._install_progress.setRange(0, 100)
+        self._install_progress.setValue(0)
+        self._install_progress.setVisible(False)
+        install_layout.addWidget(self._install_progress)
+        self._install_status = QLabel("")
+        self._install_status.setWordWrap(True)
+        self._install_status.setVisible(False)
+        install_layout.addWidget(self._install_status)
+        info_form.addRow(install_box)
         outer.addWidget(info_group)
         outer.addStretch(1)
 
@@ -182,23 +231,7 @@ class SettingsDialog(QDialog):
         themes = load_themes()
         self._themes = themes
 
-        # Arriba a la derecha del selector: renombrar y eliminar el tema
-        # actual. Solo se activan para temas personalizados (no incluidos).
-        theme_header = QWidget()
-        header_row = QHBoxLayout(theme_header)
-        header_row.setContentsMargins(0, 0, 0, 0)
-        header_row.addStretch(1)
-        self._edit_current_name = QLineEdit()
-        self._edit_current_name.setMaximumWidth(200)
-        self._edit_current_name.setPlaceholderText(tr("Nombre del tema actual"))
-        self._edit_current_name.setToolTip(tr("Solo se pueden renombrar los temas personalizados"))
-        header_row.addWidget(self._edit_current_name)
-        self._btn_delete_theme = QPushButton(tr("Eliminar"))
-        self._btn_delete_theme.setToolTip(tr("Eliminar tema"))
-        self._btn_delete_theme.clicked.connect(self._on_delete_theme)
-        header_row.addWidget(self._btn_delete_theme)
-        form.addRow(theme_header)
-
+        # Selector, nombre y borrado en la misma línea, a la derecha del tema.
         self._combo_theme = QComboBox()
         for theme in themes.values():
             self._combo_theme.addItem(theme.name, theme.id)
@@ -208,7 +241,22 @@ class SettingsDialog(QDialog):
         self._combo_theme.setCurrentIndex(index if index >= 0 else 0)
         self._combo_theme.setToolTip(tr("Tema visual de toda la aplicación"))
         self._combo_theme.currentIndexChanged.connect(self._on_theme_changed)
-        form.addRow(tr("Tema:"), self._combo_theme)
+
+        self._edit_current_name = QLineEdit()
+        self._edit_current_name.setMaximumWidth(180)
+        self._edit_current_name.setPlaceholderText(tr("Nombre del tema actual"))
+        self._edit_current_name.setToolTip(tr("Solo se pueden renombrar los temas personalizados"))
+        self._btn_delete_theme = QPushButton(tr("Eliminar"))
+        self._btn_delete_theme.setToolTip(tr("Eliminar tema"))
+        self._btn_delete_theme.clicked.connect(self._on_delete_theme)
+
+        theme_row = QWidget()
+        theme_layout = QHBoxLayout(theme_row)
+        theme_layout.setContentsMargins(0, 0, 0, 0)
+        theme_layout.addWidget(self._combo_theme, stretch=1)
+        theme_layout.addWidget(self._edit_current_name)
+        theme_layout.addWidget(self._btn_delete_theme)
+        form.addRow(tr("Tema:"), theme_row)
 
         self._color_values: dict[str, str] = {
             "bg": "#17171b",
@@ -336,6 +384,65 @@ class SettingsDialog(QDialog):
         layout.addWidget(hint)
         layout.addStretch(1)
         return page
+
+    # ------------------------------------------------------------ instalación
+    def _on_install(self) -> None:
+        if self._install_worker is not None and self._install_worker.isRunning():
+            return
+        self._button_install.setEnabled(False)
+        self._install_progress.setValue(0)
+        self._install_progress.setVisible(True)
+        self._install_status.setVisible(True)
+        self._install_status.setText(tr("Instalando PyAmp…"))
+        worker = InstallWorker(self)
+        self._install_worker = worker
+        worker.progress.connect(self._on_install_progress)
+        worker.finished_ok.connect(self._on_install_done)
+        worker.failed.connect(self._on_install_failed)
+        worker.finished.connect(self._on_install_finished)
+        worker.start()
+
+    def _on_install_progress(self, value: int, text: str) -> None:
+        self._install_progress.setValue(value)
+        if text:
+            self._install_status.setText(text)
+
+    def _on_install_done(self, result: object) -> None:
+        self._install_progress.setValue(100)
+        installed = result if isinstance(result, InstallResult) else None
+        if installed is None:
+            return
+        self._install_status.setText(installed.message)
+        if not (installed.installer_removable and installed.installer_path):
+            return
+        answer = QMessageBox.question(
+            self,
+            tr("Instalación completada"),
+            tr("¿Quieres eliminar el archivo instalador?\n{path}").format(
+                path=installed.installer_path
+            ),
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        if remove_installer(installed.installer_path):
+            self._install_status.setText(tr("Archivo instalador eliminado."))
+        else:
+            self._install_status.setText(tr("No se pudo eliminar el archivo instalador."))
+
+    def _on_install_failed(self, message: str) -> None:
+        self._install_progress.setVisible(False)
+        self._install_status.setText(tr("No se pudo instalar: {error}").format(error=message))
+
+    def _on_install_finished(self) -> None:
+        self._button_install.setEnabled(True)
+        self._install_worker = None
+
+    def done(self, result: int) -> None:
+        # Nunca destruir el diálogo con el hilo de instalación activo.
+        worker = self._install_worker
+        if worker is not None and worker.isRunning():
+            worker.wait()
+        super().done(result)
 
     def _build_shortcuts(self, settings: Settings) -> QWidget:
         page = QWidget()

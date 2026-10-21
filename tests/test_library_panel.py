@@ -649,6 +649,72 @@ def test_settings_advanced_tab_shows_coming_soon(
     assert "Proximamente... :)" in texts
 
 
+def test_settings_theme_selector_and_name_share_row(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.themes import manager as theme_manager
+
+    monkeypatch.setattr(theme_manager, "USER_THEMES_DIR", tmp_path / "themes")
+    monkeypatch.setattr(theme_manager, "_cache", None)
+    dialog = SettingsDialog(get_settings(), notifier_backend="test", version="0.2.1")
+
+    assert dialog._combo_theme.parent() is dialog._edit_current_name.parent()  # noqa: SLF001
+
+
+def test_settings_info_shows_author_os_and_install(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QLabel
+
+    from app.themes import manager as theme_manager
+
+    monkeypatch.setattr(theme_manager, "USER_THEMES_DIR", tmp_path / "themes")
+    monkeypatch.setattr(theme_manager, "_cache", None)
+    dialog = SettingsDialog(get_settings(), notifier_backend="test", version="0.2.1")
+
+    texts = [label.text() for label in dialog.findChildren(QLabel)]
+    assert "Danix13-glich" in texts
+    assert any("(" in text and ")" in text for text in texts)  # sistema
+    assert dialog._button_install.text() == "Instalar"  # noqa: SLF001
+    assert dialog._install_progress.isVisible() is False  # noqa: SLF001
+
+
+def test_installer_source_mode_creates_desktop_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import platform
+
+    if platform.system() != "Linux":
+        pytest.skip("la instalación desde código solo se prueba en Linux")
+
+    from app.utils import installer
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    root = tmp_path / "app"
+    (root / "assets").mkdir(parents=True)
+    monkeypatch.setattr(installer, "source_root", lambda: root)
+
+    result = installer.install_application()
+
+    assert result.ok is True
+    desktop = tmp_path / ".local" / "share" / "applications" / "pyamp.desktop"
+    assert desktop.is_file()
+    content = desktop.read_text(encoding="utf-8")
+    assert "Exec=" in content and "main.py" in content
+    assert "Icon=" in content
+
+
+def test_remove_installer_deletes_file(tmp_path: Path) -> None:
+    from app.utils.installer import remove_installer
+
+    target = tmp_path / "pyamp_0.2.1.AppImage"
+    target.write_text("binario", encoding="utf-8")
+
+    assert remove_installer(str(target)) is True
+    assert target.exists() is False
+    assert remove_installer(str(target)) is False
+
+
 def test_settings_theme_rename_only_for_custom(
     qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

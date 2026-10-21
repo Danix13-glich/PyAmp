@@ -91,3 +91,6 @@ $RECYCLE.BIN/
 # ---------- Jupyter / misc ----------
 .ipynb_checkpoints/
 *.local
+
+# ---------- Empaquetado ----------
+AppDir/

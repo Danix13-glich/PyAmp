@@ -1,0 +1,194 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  linux:
+    name: Linux AppImage
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version
+        run: |
+          VERSION=$(python -c "import re;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/app/version.py').read()).group(1))")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Install system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvlc-dev vlc-plugin-base libfuse2
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm --clean pyamp.spec
+
+      - name: Build AppImage
+        run: |
+          mkdir -p AppDir/usr/bin AppDir/usr/share/icons/hicolor AppDir/usr/lib/vlc
+          cp dist/pyamp AppDir/usr/bin/pyamp
+          QT_QPA_PLATFORM=offscreen python packaging/make_icons.py assets/logo.svg AppDir/usr/share/icons/hicolor
+          cp AppDir/usr/share/icons/hicolor/256x256/apps/pyamp.png AppDir/pyamp.png
+          # libVLC + plugins dentro del AppImage (mejor portabilidad).
+          LIBDIR=/usr/lib/x86_64-linux-gnu
+          cp -a "$LIBDIR"/libvlc.so* AppDir/usr/lib/ || true
+          cp -a "$LIBDIR"/libvlccore.so* AppDir/usr/lib/ || true
+          cp -a "$LIBDIR"/vlc/plugins AppDir/usr/lib/vlc/plugins || true
+          cat > AppDir/pyamp.desktop <<'EOF'
+          [Desktop Entry]
+          Type=Application
+          Version=1.0
+          Name=PyAmp
+          GenericName=Music player
+          Comment=Local music and online radio
+          Exec=pyamp
+          Icon=pyamp
+          Terminal=false
+          Categories=AudioVideo;Audio;Player;
+          Keywords=music;player;winamp;radio;
+          StartupNotify=true
+          StartupWMClass=PyAmp
+          EOF
+          cat > AppDir/AppRun <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          if [ -f "$HERE/usr/lib/libvlc.so.5" ]; then
+            export LD_LIBRARY_PATH="$HERE/usr/lib:${LD_LIBRARY_PATH:-}"
+            export PYTHON_VLC_LIB_PATH="$HERE/usr/lib/libvlc.so.5"
+          fi
+          if [ -d "$HERE/usr/lib/vlc/plugins" ]; then
+            export VLC_PLUGIN_PATH="$HERE/usr/lib/vlc/plugins"
+          fi
+          exec "$HERE/usr/bin/pyamp" "$@"
+          EOF
+          chmod +x AppDir/AppRun
+          wget -q -O appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir "dist/pyamp_${VERSION}.AppImage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-appimage
+          path: dist/pyamp_*.AppImage
+          if-no-files-found: error
+
+  windows:
+    name: Windows .exe
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version
+        shell: bash
+        run: |
+          VERSION=$(python -c "import re;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/app/version.py').read()).group(1))")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm --clean pyamp.spec
+
+      - name: Bundle VLC (best effort)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://download.videolan.org/pub/videolan/vlc/3.0.21/win64/vlc-3.0.21-win64.zip" -OutFile vlc.zip
+          Expand-Archive vlc.zip -DestinationPath vlc
+          Copy-Item "vlc\vlc-3.0.21\libvlc.dll" dist\
+          Copy-Item "vlc\vlc-3.0.21\libvlccore.dll" dist\
+          Copy-Item "vlc\vlc-3.0.21\plugins" dist\plugins -Recurse
+
+      - name: Rename artifact
+        shell: bash
+        run: mv dist/pyamp.exe "dist/pyamp_${VERSION}.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: dist/pyamp_*.exe
+          if-no-files-found: error
+
+  macos:
+    name: macOS .dmg
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version
+        run: |
+          VERSION=$(python -c "import re;print(re.search(r'__version__\s*=\s*\"([^\"]+)\"', open('src/app/version.py').read()).group(1))")
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller --noconfirm --clean pyamp.spec
+
+      - name: Bundle VLC (best effort)
+        continue-on-error: true
+        run: |
+          curl -L -o vlc.dmg "https://download.videolan.org/pub/videolan/vlc/3.0.21/macosx/vlc-3.0.21-intel64.dmg"
+          hdiutil attach vlc.dmg -nobrowse -quiet -mountpoint /tmp/vlc
+          mkdir -p "dist/PyAmp.app/Contents/Frameworks/vlc"
+          cp -R "/tmp/vlc/VLC.app/Contents/MacOS/lib/." "dist/PyAmp.app/Contents/Frameworks/"
+          cp -R "/tmp/vlc/VLC.app/Contents/MacOS/plugins" "dist/PyAmp.app/Contents/Frameworks/vlc/plugins"
+          hdiutil detach /tmp/vlc -quiet || true
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname "PyAmp" -srcfolder "dist/PyAmp.app" -ov -format UDZO "dist/pyamp_${VERSION}.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-dmg
+          path: dist/pyamp_*.dmg
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List assets
+        run: ls -lh artifacts
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          body_path: .github/release_body.md
+          files: artifacts/*
+          fail_on_unmatched_files: true

@@ -48,11 +48,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-Para que aparezca en el menú de aplicaciones con su icono:
-
-```bash
-./install.sh
-```
+Para que aparezca en el menú de aplicaciones con su icono: abre PyAmp y pulsa
+**«Instalar»** en **Ajustes → General → Información**.
 
 ### Debian / Ubuntu
 
