@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QKeySequence
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QKeySequenceEdit,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -33,7 +34,14 @@ from app.core.settings import (
     Settings,
 )
 from app.i18n import LANGUAGES, tr
-from app.themes import DEFAULT_THEME_ID, create_custom_theme, load_themes
+from app.themes import (
+    DEFAULT_THEME_ID,
+    create_custom_theme,
+    delete_custom_theme,
+    is_custom_theme,
+    load_themes,
+    rename_custom_theme,
+)
 
 #: Valor centinela del combo de temas para «crear uno nuevo».
 CREATE_THEME_SENTINEL = "__create_theme__"
@@ -91,6 +99,7 @@ class SettingsDialog(QDialog):
         )
         tabs.addTab(self._build_appearance(settings), tr("Apariencia"))
         tabs.addTab(self._build_shortcuts(settings), tr("Atajos"))
+        tabs.addTab(self._build_advanced(), tr("Avanzado"))
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -170,8 +179,27 @@ class SettingsDialog(QDialog):
         page = QWidget()
         form = QFormLayout(page)
 
-        self._combo_theme = QComboBox()
         themes = load_themes()
+        self._themes = themes
+
+        # Arriba a la derecha del selector: renombrar y eliminar el tema
+        # actual. Solo se activan para temas personalizados (no incluidos).
+        theme_header = QWidget()
+        header_row = QHBoxLayout(theme_header)
+        header_row.setContentsMargins(0, 0, 0, 0)
+        header_row.addStretch(1)
+        self._edit_current_name = QLineEdit()
+        self._edit_current_name.setMaximumWidth(200)
+        self._edit_current_name.setPlaceholderText(tr("Nombre del tema actual"))
+        self._edit_current_name.setToolTip(tr("Solo se pueden renombrar los temas personalizados"))
+        header_row.addWidget(self._edit_current_name)
+        self._btn_delete_theme = QPushButton(tr("Eliminar"))
+        self._btn_delete_theme.setToolTip(tr("Eliminar tema"))
+        self._btn_delete_theme.clicked.connect(self._on_delete_theme)
+        header_row.addWidget(self._btn_delete_theme)
+        form.addRow(theme_header)
+
+        self._combo_theme = QComboBox()
         for theme in themes.values():
             self._combo_theme.addItem(theme.name, theme.id)
         self._combo_theme.addItem(tr("➕ Crear tema nuevo…"), CREATE_THEME_SENTINEL)
@@ -235,6 +263,7 @@ class SettingsDialog(QDialog):
             tr("Los archivos ocultos aparecen al principio, con un «-» delante.")
         )
         form.addRow(self._check_hidden)
+        self._on_theme_changed()
         return page
 
     def _make_color_button(self, role: str, label: str) -> QPushButton:
@@ -267,8 +296,46 @@ class SettingsDialog(QDialog):
         self._apply_color_style(button, chosen.name())
 
     def _on_theme_changed(self) -> None:
-        creating = self._combo_theme.currentData() == CREATE_THEME_SENTINEL
+        selected = str(self._combo_theme.currentData() or "")
+        creating = selected == CREATE_THEME_SENTINEL
+        custom = not creating and is_custom_theme(selected)
         self._create_group.setVisible(creating)
+        self._edit_current_name.setEnabled(custom)
+        self._btn_delete_theme.setEnabled(custom)
+        theme = self._themes.get(selected) if custom else None
+        self._edit_current_name.setText(theme.name if theme is not None else "")
+
+    def _on_delete_theme(self) -> None:
+        theme_id = str(self._combo_theme.currentData() or "")
+        theme = self._themes.get(theme_id)
+        if theme is None or not is_custom_theme(theme_id):
+            return
+        answer = QMessageBox.question(
+            self,
+            tr("Eliminar tema"),
+            tr("¿Eliminar el tema «{name}»?").format(name=theme.name),
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        if not delete_custom_theme(theme_id):
+            return
+        index = self._combo_theme.findData(theme_id)
+        if index >= 0:
+            self._combo_theme.removeItem(index)
+        self._themes = load_themes()
+        default_index = self._combo_theme.findData(DEFAULT_THEME_ID)
+        self._combo_theme.setCurrentIndex(default_index if default_index >= 0 else 0)
+        self._on_theme_changed()
+
+    def _build_advanced(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        hint = QLabel(tr("Proximamente... :)"))
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addStretch(1)
+        layout.addWidget(hint)
+        layout.addStretch(1)
+        return page
 
     def _build_shortcuts(self, settings: Settings) -> QWidget:
         page = QWidget()
@@ -305,6 +372,11 @@ class SettingsDialog(QDialog):
     def _on_accepted(self) -> None:
         self.apply_language.emit(str(self._combo_language.currentData() or "es"))
         self.apply_settings.emit(self._check_enabled.isChecked(), self._spin_timeout.value() * 1000)
+        selected = str(self._combo_theme.currentData() or DEFAULT_THEME_ID)
+        if selected != CREATE_THEME_SENTINEL and is_custom_theme(selected):
+            new_name = self._edit_current_name.text().strip()
+            if new_name:
+                rename_custom_theme(selected, new_name)
         self.apply_appearance.emit(
             self._resolve_theme_id(),
             self._check_spectrum.isChecked(),

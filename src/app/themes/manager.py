@@ -288,3 +288,59 @@ def create_custom_theme(
     logger.info("Tema personalizado creado: %s (%s)", base_name, path)
     reload_themes()
     return _parse_theme(path)
+
+
+def find_custom_theme_path(theme_id: str) -> Path | None:
+    # Solo los temas del usuario viven en USER_THEMES_DIR.
+    if not USER_THEMES_DIR.is_dir():
+        return None
+    for path in USER_THEMES_DIR.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict) and str(data.get("id")) == str(theme_id):
+            return path
+    return None
+
+
+def is_custom_theme(theme_id: str) -> bool:
+    return find_custom_theme_path(theme_id) is not None
+
+
+def delete_custom_theme(theme_id: str) -> bool:
+    path = find_custom_theme_path(theme_id)
+    if path is None:
+        return False
+    try:
+        path.unlink()
+    except OSError as exc:
+        logger.warning("No se pudo borrar el tema %s: %s", path, exc)
+        return False
+    logger.info("Tema personalizado eliminado: %s", path)
+    reload_themes()
+    return True
+
+
+def rename_custom_theme(theme_id: str, name: str) -> Theme | None:
+    path = find_custom_theme_path(theme_id)
+    if path is None:
+        return None
+    clean = str(name).strip()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        logger.warning("No se pudo leer el tema %s: %s", path, exc)
+        return None
+    if not isinstance(data, dict):
+        return None
+    if clean:
+        data["name"] = clean
+    try:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except OSError as exc:
+        logger.warning("No se pudo renombrar el tema %s: %s", path, exc)
+        return None
+    logger.info("Tema personalizado renombrado: %s", data.get("name"))
+    reload_themes()
+    return _parse_theme(path)

@@ -13,11 +13,12 @@ _SRC_DIR = Path(__file__).resolve().parent / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtGui import QIcon  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.core.settings import get_settings  # noqa: E402
-from app.i18n import set_language  # noqa: E402
+from app.i18n import is_rtl, set_language  # noqa: E402
 from app.ui.main_window import MainWindow  # noqa: E402
 from app.utils.logging import setup_logging  # noqa: E402
 from app.version import __version__  # noqa: E402
@@ -37,8 +38,13 @@ def main() -> int:
         app.setWindowIcon(QIcon(str(icon_path)))
 
     # Idioma guardado (Ajustes → General) ANTES de construir la interfaz:
-    # las dos versiones de los textos viven en app/i18n.py.
-    set_language(get_settings().language)
+    # las versiones de los textos viven en app/i18n.py.
+    language = get_settings().language
+    set_language(language)
+    # Los idiomas RTL (árabe) invierten toda la interfaz.
+    app.setLayoutDirection(
+        Qt.LayoutDirection.RightToLeft if is_rtl(language) else Qt.LayoutDirection.LeftToRight
+    )
 
     log_file = setup_logging()
     logger.info(

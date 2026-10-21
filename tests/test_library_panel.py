@@ -613,7 +613,7 @@ def test_settings_dialog_has_tabs_and_appearance(
     tabs = dialog.findChild(QTabWidget)
     assert tabs is not None
     labels = [tabs.tabText(i) for i in range(tabs.count())]
-    assert labels == ["General", "Apariencia", "Atajos"]
+    assert labels == ["General", "Apariencia", "Atajos", "Avanzado"]
     # Notificaciones e Información viven dentro de la pestaña General.
     from PySide6.QtWidgets import QGroupBox
 
@@ -629,6 +629,81 @@ def test_settings_dialog_has_tabs_and_appearance(
         == CREATE_THEME_SENTINEL
     )
     assert dialog._create_group.isVisible() is False  # noqa: SLF001 - tests
+
+
+def test_settings_advanced_tab_shows_coming_soon(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QLabel, QTabWidget
+
+    from app.themes import manager as theme_manager
+
+    monkeypatch.setattr(theme_manager, "USER_THEMES_DIR", tmp_path / "themes")
+    monkeypatch.setattr(theme_manager, "_cache", None)
+
+    dialog = SettingsDialog(get_settings(), notifier_backend="test", version="0.2.1")
+    tabs = dialog.findChild(QTabWidget)
+    assert tabs is not None
+    advanced = tabs.widget(tabs.count() - 1)
+    texts = [label.text() for label in advanced.findChildren(QLabel)]
+    assert "Proximamente... :)" in texts
+
+
+def test_settings_theme_rename_only_for_custom(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.themes import DEFAULT_THEME_ID, create_custom_theme, get_theme
+    from app.themes import manager as theme_manager
+
+    monkeypatch.setattr(theme_manager, "USER_THEMES_DIR", tmp_path / "themes")
+    monkeypatch.setattr(theme_manager, "_cache", None)
+    theme = create_custom_theme("#101010", "#eeeeee", "#ff8800", name="Atardecer")
+
+    dialog = SettingsDialog(get_settings(), notifier_backend="test", version="0.2.1")
+
+    default_index = dialog._combo_theme.findData(DEFAULT_THEME_ID)  # noqa: SLF001
+    dialog._combo_theme.setCurrentIndex(default_index)  # noqa: SLF001
+    assert dialog._edit_current_name.isEnabled() is False  # noqa: SLF001
+    assert dialog._btn_delete_theme.isEnabled() is False  # noqa: SLF001
+
+    custom_index = dialog._combo_theme.findData(theme.id)  # noqa: SLF001
+    dialog._combo_theme.setCurrentIndex(custom_index)  # noqa: SLF001
+    assert dialog._edit_current_name.isEnabled() is True  # noqa: SLF001
+    assert dialog._btn_delete_theme.isEnabled() is True  # noqa: SLF001
+    assert dialog._edit_current_name.text() == "Atardecer"  # noqa: SLF001
+
+    dialog._edit_current_name.setText("Noche")  # noqa: SLF001
+    dialog._on_accepted()  # noqa: SLF001
+    assert get_theme(theme.id).name == "Noche"
+
+
+def test_settings_delete_removes_custom_theme(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    from app.themes import create_custom_theme, is_custom_theme
+    from app.themes import manager as theme_manager
+
+    monkeypatch.setattr(theme_manager, "USER_THEMES_DIR", tmp_path / "themes")
+    monkeypatch.setattr(theme_manager, "_cache", None)
+    theme = create_custom_theme("#101010", "#eeeeee", "#ff8800", name="Temporal")
+
+    dialog = SettingsDialog(get_settings(), notifier_backend="test", version="0.2.1")
+    dialog._combo_theme.setCurrentIndex(  # noqa: SLF001
+        dialog._combo_theme.findData(theme.id)  # noqa: SLF001
+    )
+    monkeypatch.setattr(
+        QMessageBox,
+        "question",
+        lambda *args, **kwargs: QMessageBox.StandardButton.Yes,
+    )
+
+    dialog._on_delete_theme()  # noqa: SLF001
+
+    assert is_custom_theme(theme.id) is False
+    assert dialog._combo_theme.findData(theme.id) == -1  # noqa: SLF001
+    assert dialog._btn_delete_theme.isEnabled() is False  # noqa: SLF001
 
 
 def test_settings_dialog_emits_appearance(qapp: QApplication) -> None:

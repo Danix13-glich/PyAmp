@@ -52,7 +52,42 @@ def test_set_language_rejects_unknown_codes() -> None:
     assert current_language() == "es"
     assert language_name("fr") == "Español"
     assert language_name("en") == "English"
-    assert set(LANGUAGES) == {"es", "en"}
+    assert language_name("it") == "Italiano"
+    assert language_name("ar") == "العربية"
+    assert set(LANGUAGES) == {"es", "en", "it", "ar"}
+
+
+def test_tr_translates_known_texts_to_italian() -> None:
+    set_language("it")
+    assert tr("&Archivo") == "&File"
+    assert tr("Ajustes de PyAmp") == "Impostazioni di PyAmp"
+    assert tr("texto sin traducir") == "texto sin traducir"
+
+
+def test_tr_translates_known_texts_to_arabic() -> None:
+    set_language("ar")
+    assert tr("&Archivo") == "&ملف"
+    assert tr("Ajustes de PyAmp") == "إعدادات PyAmp"
+    assert tr("texto sin traducir") == "texto sin traducir"
+
+
+def test_arabic_is_right_to_left() -> None:
+    from app.i18n import is_rtl
+
+    assert is_rtl("ar") is True
+    assert is_rtl("es") is False
+    assert is_rtl("it") is False
+
+
+def test_all_translations_cover_every_key() -> None:
+    from app.i18n import _AR, _EN, _IT, _TRANSLATIONS
+
+    assert set(_TRANSLATIONS) == {"en", "it", "ar"}
+    for code, table in (("it", _IT), ("ar", _AR)):
+        missing = set(_EN) - set(table)
+        assert not missing, f"faltan claves en {code}: {sorted(missing)[:5]}"
+        extra = set(table) - set(_EN)
+        assert not extra, f"claves sobrantes en {code}: {sorted(extra)[:5]}"
 
 
 # ---------------------------------------------------------- Settings.language
@@ -72,7 +107,7 @@ def test_settings_dialog_emits_language(qapp: QApplication) -> None:
     received: list[str] = []
     dialog.apply_language.connect(received.append)
 
-    assert dialog._combo_language.count() == 2  # noqa: SLF001 - tests
+    assert dialog._combo_language.count() == 4  # noqa: SLF001 - tests
     dialog._combo_language.setCurrentIndex(  # noqa: SLF001 - tests
         dialog._combo_language.findData("en")  # noqa: SLF001 - tests
     )
