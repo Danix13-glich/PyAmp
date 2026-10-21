@@ -196,9 +196,18 @@ jobs:
       - name: List assets
         run: ls -lh artifacts
 
+      - name: Release notes
+        id: notes
+        run: |
+          {
+            echo "body<<PYAMP_EOF"
+            cat .github/release_body.md
+            echo "PYAMP_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - uses: softprops/action-gh-release@v2
         with:
           name: PyAmp ${{ github.ref_name }}
-          body_path: .github/release_body.md
+          body: ${{ steps.notes.outputs.body }}
           files: artifacts/*
           fail_on_unmatched_files: true

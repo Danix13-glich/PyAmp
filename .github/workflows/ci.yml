@@ -75,8 +75,16 @@ jobs:
           rc=$?
           tail -80 pytest.log
           if [ "$rc" -ne 0 ]; then
-            while IFS= read -r line; do
-              echo "::error title=Pytest::$line"
-            done < <(grep -E "^(FAILED|ERROR) " pytest.log | head -30)
+            if grep -qE "^(FAILED|ERROR) " pytest.log; then
+              while IFS= read -r line; do
+                echo "::error title=Pytest::$line"
+              done < <(grep -E "^(FAILED|ERROR) " pytest.log | head -10)
+            else
+              while IFS= read -r line; do
+                line=${line//'%'/'%25'}
+                line=${line//$'\r'/}
+                echo "::error title=Pytest log::$line"
+              done < <(tail -8 pytest.log)
+            fi
           fi
           exit "$rc"
