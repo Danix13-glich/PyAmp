@@ -28,7 +28,7 @@
 - Real FFT spectrum in the header (numpy + QPainter).
 - Synced `.lrc` lyrics and a lyrics editor.
 - Native desktop notification on every track change.
-- ⇄ Shuffle and ↻ Repeat.
+- **ALEA** (shuffle) and **REP** (repeat).
 - Three visual themes (Winamp dark, Terminal green and Light sand).
 - Spanish, English, Italian and Arabic interface.
 - Media keys and MPRIS integration on Linux.
