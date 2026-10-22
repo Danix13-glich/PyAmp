@@ -211,7 +211,7 @@ def test_panel_emits_play_for_selected_station(qapp: QApplication, tmp_path: Pat
     panel.play_requested.connect(received.append)
 
     panel._table.setCurrentCell(0, 0)  # noqa: SLF001 - tests
-    panel._button_play.click()  # noqa: SLF001 - tests
+    panel._play_selected()  # noqa: SLF001 - tests
 
     assert len(received) == 1
     assert received[0].name == "Uno"
