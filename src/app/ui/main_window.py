@@ -511,7 +511,7 @@ class MainWindow(QMainWindow):
             (
                 QKeySequence(Qt.Key.Key_MediaPlay),
                 tr("Reproducir (multimedia)"),
-                self._player.play,
+                self._on_play_clicked,
             ),
             (
                 QKeySequence(Qt.Key.Key_MediaPause),
@@ -1003,7 +1003,29 @@ class MainWindow(QMainWindow):
 
     # -------------------------------------------------------- vistas/ajustes
     def _on_play_clicked(self) -> None:
+        # En radio, si no hay nada sonando, el botón retoma la última emisora
+        # escuchada en lugar de arrancar la lista de canciones locales.
+        if self._radio_view and self._player.state == STATE_STOPPED and not self._player.is_stream:
+            self._play_last_radio()
+            return
         self._player.toggle_pause()
+
+    def _play_last_radio(self) -> bool:
+        data = self._settings.last_radio_station
+        if data is None:
+            self.statusBar().showMessage(
+                tr("Selecciona una emisora para reproducirla"), ERROR_TIMEOUT_MS
+            )
+            return False
+        station = RadioStation(
+            name=data["name"] or data["url"],
+            url=data["url"],
+            genre=data["genre"],
+            country=data["country"],
+        )
+        self._radio_station = station
+        self._on_radio_play(station)
+        return self._player.state == STATE_PLAYING
 
     def _on_prev(self) -> None:
         # En la vista de radio, anterior/siguiente cambian de emisora.
@@ -1057,6 +1079,12 @@ class MainWindow(QMainWindow):
             return
         self._radio_station = station
         if self._player.play_stream(station.url, station.name, tr("Radio online")):
+            self._settings.last_radio_station = {
+                "name": station.name,
+                "url": station.url,
+                "genre": station.genre,
+                "country": station.country,
+            }
             self._radio_panel.show_message(tr("Reproduciendo {name}").format(name=station.name))
             self.statusBar().showMessage(
                 tr("▶ {name} (radio)").format(name=station.name), ERROR_TIMEOUT_MS

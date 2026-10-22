@@ -16,6 +16,25 @@ def _settings(tmp_path: Path) -> Settings:
     return Settings(tmp_path / "radio-test.conf")
 
 
+def test_last_radio_station_roundtrip(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    assert settings.last_radio_station is None
+    settings.last_radio_station = {
+        "name": "Radio Uno",
+        "url": "http://uno",
+        "genre": "Pop",
+        "country": "España",
+    }
+    assert _settings(tmp_path).last_radio_station == {
+        "name": "Radio Uno",
+        "url": "http://uno",
+        "genre": "Pop",
+        "country": "España",
+    }
+    settings.last_radio_station = None
+    assert _settings(tmp_path).last_radio_station is None
+
+
 def test_stations_start_empty(tmp_path: Path) -> None:
     library = RadioLibrary(_settings(tmp_path))
     assert library.stations() == []
@@ -248,3 +267,17 @@ def test_panel_select_relative_wraps_and_plays(qapp: QApplication, tmp_path: Pat
     panel.select_relative(-1)  # vuelve a la primera
 
     assert [station.name for station in played] == ["Uno", "Dos", "Uno"]
+
+
+def test_panel_bottom_buttons_are_edit_remove_new(qapp: QApplication, tmp_path: Path) -> None:
+    library = RadioLibrary(_settings(tmp_path))
+    library.set_found_stations([RadioStation("Uno", "http://uno", "Pop", "España")])
+    panel = RadioPanel(library)
+    textos = [
+        panel._button_edit.text(),  # noqa: SLF001 - tests
+        panel._button_remove.text(),  # noqa: SLF001 - tests
+        panel._button_add.text(),  # noqa: SLF001 - tests
+    ]
+    assert textos == ["Editar", "Eliminar", "Nuevo"]
+    assert not hasattr(panel, "_button_play")
+    assert not hasattr(panel, "_button_stop")

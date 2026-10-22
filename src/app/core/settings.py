@@ -33,6 +33,7 @@ KEY_RADIO_STATIONS = "radio/stations"
 KEY_RADIO_OVERRIDES = "radio/overrides"
 KEY_RADIO_HIDDEN = "radio/hidden"
 KEY_RADIO_FOUND = "radio/found"
+KEY_RADIO_LAST = "radio/last"
 KEY_HISTORY_NOTIFIED = "history/notified_month"
 
 DEFAULT_VOLUME = 100
@@ -368,6 +369,47 @@ class Settings:
     @radio_found.setter
     def radio_found(self, value: str) -> None:
         self.set_value(KEY_RADIO_FOUND, str(value))
+
+    @property
+    def last_radio_station(self) -> dict[str, str] | None:
+        raw = self._raw(KEY_RADIO_LAST, "")
+        if not raw:
+            return None
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+            except (TypeError, ValueError):
+                return None
+        elif isinstance(raw, dict):
+            data = raw
+        else:
+            return None
+        if not isinstance(data, dict):
+            return None
+        url = str(data.get("url", "")).strip()
+        if not url:
+            return None
+        return {
+            "name": str(data.get("name", "")).strip(),
+            "url": url,
+            "genre": str(data.get("genre", "")).strip(),
+            "country": str(data.get("country", "")).strip(),
+        }
+
+    @last_radio_station.setter
+    def last_radio_station(self, station: dict[str, str] | None) -> None:
+        values = station or {}
+        url = str(values.get("url", "")).strip()
+        if not url:
+            self.set_value(KEY_RADIO_LAST, "")
+            return
+        data = {
+            "name": str(values.get("name", "")).strip(),
+            "url": url,
+            "genre": str(values.get("genre", "")).strip(),
+            "country": str(values.get("country", "")).strip(),
+        }
+        self.set_value(KEY_RADIO_LAST, json.dumps(data, ensure_ascii=False))
 
     # --------------------------------------------------------------- historial
     @property
