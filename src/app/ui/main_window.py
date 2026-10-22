@@ -267,7 +267,9 @@ class MainWindow(QMainWindow):
             transport_row.addWidget(button)
 
         self._button_shuffle = QToolButton()
-        # Texto ASCII: no depende de fuentes de emojis ni de símbolos.
+        # Texto ASCII y estilo solo-texto: algunos estilos (Breeze/KDE)
+        # ocultan el texto de un QToolButton si no tiene icono.
+        self._button_shuffle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._button_shuffle.setText("ALEA")
         self._button_shuffle.setCheckable(True)
         self._button_shuffle.setToolTip(tr("Aleatorio: siguiente pista al azar"))
@@ -277,6 +279,7 @@ class MainWindow(QMainWindow):
         transport_row.addWidget(self._button_shuffle)
 
         self._button_repeat = QToolButton()
+        self._button_repeat.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
         self._button_repeat.setText("REP")
         self._button_repeat.setCheckable(True)
         self._button_repeat.setToolTip(tr("Repetir: repite la pista actual una vez y se desactiva"))
