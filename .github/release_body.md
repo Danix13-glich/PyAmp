@@ -3,7 +3,7 @@
 ## Novedades
 
 - **Aleatorio y Repetir**: los botones muestran ahora el texto ASCII **ALEA** y **REP**, que se dibuja siempre. Antes se usaban emojis y símbolos que en algunos equipos aparecían como un cuadro vacío.
-- **Sin emojis**: se han quitado los que quedaban en la interfaz y en las plantillas de GitHub (`➕`, `✓`, `🐛`, `💡`). Solo se mantienen los símbolos funcionales de los botones (★ favorito y ♪ carátula).
+- **Sin emojis**: se han quitado los que quedaban en la interfaz y en las plantillas de GitHub. Solo se mantienen los símbolos funcionales de los botones: la estrella de favorito y la nota de la carátula.
 
 ## Archivos
 
