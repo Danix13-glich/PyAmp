@@ -1,5 +1,5 @@
 ---
-name: "🐛 Bug report"
+name: "Bug report"
 about: "Algo no funciona como esperabas en PyAmp"
 title: "[Bug] "
 labels: bug

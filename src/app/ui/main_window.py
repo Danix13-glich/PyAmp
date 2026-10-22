@@ -267,7 +267,9 @@ class MainWindow(QMainWindow):
             transport_row.addWidget(button)
 
         self._button_shuffle = QToolButton()
-        self._button_shuffle.setText("🔀")
+        # Símbolo de texto (no emoji): los emojis de color no se pintaban
+        # en algunos sistemas y el botón quedaba vacío.
+        self._button_shuffle.setText("⇄")
         self._button_shuffle.setCheckable(True)
         self._button_shuffle.setToolTip(tr("Aleatorio: siguiente pista al azar"))
         self._button_shuffle.setAccessibleName(tr("Aleatorio"))
@@ -276,7 +278,7 @@ class MainWindow(QMainWindow):
         transport_row.addWidget(self._button_shuffle)
 
         self._button_repeat = QToolButton()
-        self._button_repeat.setText("🔁")
+        self._button_repeat.setText("↻")
         self._button_repeat.setCheckable(True)
         self._button_repeat.setToolTip(tr("Repetir: repite la pista actual una vez y se desactiva"))
         self._button_repeat.setAccessibleName(tr("Repetir"))
@@ -1293,9 +1295,7 @@ class MainWindow(QMainWindow):
 
     def _send_test_notification(self) -> None:
         try:
-            self._notifier.notify(
-                tr("Notificación de prueba"), tr("PyAmp funciona correctamente ✓")
-            )
+            self._notifier.notify(tr("Notificación de prueba"), tr("PyAmp funciona correctamente"))
         except Exception as exc:  # noqa: BLE001 - nunca romper la UI
             logger.warning("Notificación de prueba falló: %s", exc)
             self.statusBar().showMessage(

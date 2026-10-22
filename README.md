@@ -28,7 +28,7 @@
 - Espectro FFT real en la cabecera (numpy + QPainter).
 - Letras `.lrc` sincronizadas y editor de letras.
 - Notificación nativa de escritorio en cada cambio de pista.
-- 🔀 Aleatorio y 🔁 repetir.
+- ⇄ Aleatorio y ↻ Repetir.
 - Tres temas visuales (Winamp oscuro, Verde terminal y Arena clara).
 - Interfaz en español, inglés, italiano y árabe.
 - Teclas multimedia e integración MPRIS en Linux.

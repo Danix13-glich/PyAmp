@@ -1,5 +1,5 @@
 ---
-name: "💡 Feature request"
+name: "Feature request"
 about: "Propón una mejora o una función nueva para PyAmp"
 title: "[Feature] "
 labels: enhancement

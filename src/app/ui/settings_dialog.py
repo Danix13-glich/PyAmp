@@ -220,7 +220,7 @@ class SettingsDialog(QDialog):
         self._combo_theme = QComboBox()
         for theme in themes.values():
             self._combo_theme.addItem(theme.name, theme.id)
-        self._combo_theme.addItem(tr("➕ Crear tema nuevo…"), CREATE_THEME_SENTINEL)
+        self._combo_theme.addItem(tr("Crear tema nuevo…"), CREATE_THEME_SENTINEL)
         wanted = settings.theme_id or DEFAULT_THEME_ID
         index = self._combo_theme.findData(wanted)
         self._combo_theme.setCurrentIndex(index if index >= 0 else 0)
