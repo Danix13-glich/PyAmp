@@ -17,6 +17,8 @@ from PySide6.QtGui import (
     QKeySequence,
     QMouseEvent,
     QPainter,
+    QPalette,
+    QPixmap,
 )
 from PySide6.QtWidgets import (
     QApplication,
@@ -121,6 +123,11 @@ class ClickSlider(QSlider):
         super().mousePressEvent(event)
 
 
+def _assets_dir() -> Path:
+    base = getattr(sys, "_MEIPASS", None)
+    return (Path(str(base)) if base else Path(__file__).resolve().parents[3]) / "assets"
+
+
 class MainWindow(QMainWindow):
 
     #: Peticiones MPRIS llegadas del bus (hilo ajeno → hilo de UI).
@@ -163,6 +170,7 @@ class MainWindow(QMainWindow):
         self._theme_actions: dict[str, QAction] = {}
         #: Icono nativo de cada botón de transporte (para re-teñirlo por tema).
         self._icon_buttons: dict[QToolButton, QStyle.StandardPixmap] = {}
+        self._emoji_buttons: dict[QToolButton, str] = {}
         self._theme: Theme = get_theme(self._settings.theme_id or DEFAULT_THEME_ID)
 
         self._build_ui()
@@ -267,10 +275,10 @@ class MainWindow(QMainWindow):
             transport_row.addWidget(button)
 
         self._button_shuffle = QToolButton()
-        # Texto ASCII y estilo solo-texto: algunos estilos (Breeze/KDE)
-        # ocultan el texto de un QToolButton si no tiene icono.
-        self._button_shuffle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self._button_shuffle.setText("ALEA")
+        # El emoji se usa como imagen: Qt no pinta el texto emoji en todos
+        # los equipos (Breeze/KDE lo dejaba en blanco).
+        self._button_shuffle.setIcon(self._emoji_icon("shuffle"))
+        self._emoji_buttons[self._button_shuffle] = "shuffle"
         self._button_shuffle.setCheckable(True)
         self._button_shuffle.setToolTip(tr("Aleatorio: siguiente pista al azar"))
         self._button_shuffle.setAccessibleName(tr("Aleatorio"))
@@ -279,8 +287,8 @@ class MainWindow(QMainWindow):
         transport_row.addWidget(self._button_shuffle)
 
         self._button_repeat = QToolButton()
-        self._button_repeat.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
-        self._button_repeat.setText("REP")
+        self._button_repeat.setIcon(self._emoji_icon("repeat"))
+        self._emoji_buttons[self._button_repeat] = "repeat"
         self._button_repeat.setCheckable(True)
         self._button_repeat.setToolTip(tr("Repetir: repite la pista actual una vez y se desactiva"))
         self._button_repeat.setAccessibleName(tr("Repetir"))
@@ -549,6 +557,13 @@ class MainWindow(QMainWindow):
         button.clicked.connect(slot)
         return button
 
+    def _icon_color(self) -> QColor:
+        # Los temas nativos usan los botones del sistema: el color del icono
+        # debe ser el del texto real del botón, no el del tema de PyAmp.
+        if self._theme.native:
+            return self.palette().color(QPalette.ColorRole.ButtonText)
+        return QColor(self._theme.color("icon"))
+
     def _transport_icon(self, standard: QStyle.StandardPixmap) -> QIcon:
         base = self.style().standardIcon(standard)
         pixmap = base.pixmap(24, 24)
@@ -556,13 +571,26 @@ class MainWindow(QMainWindow):
             return base
         painter = QPainter(pixmap)
         painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
-        painter.fillRect(pixmap.rect(), QColor(self._theme.color("icon")))
+        painter.fillRect(pixmap.rect(), self._icon_color())
+        painter.end()
+        return QIcon(pixmap)
+
+    def _emoji_icon(self, name: str) -> QIcon:
+        path = _assets_dir() / f"{name}.png"
+        pixmap = QPixmap(str(path))
+        if pixmap.isNull():
+            return QIcon()
+        painter = QPainter(pixmap)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceIn)
+        painter.fillRect(pixmap.rect(), self._icon_color())
         painter.end()
         return QIcon(pixmap)
 
     def _refresh_icon_buttons(self) -> None:
         for button, standard in self._icon_buttons.items():
             button.setIcon(self._transport_icon(standard))
+        for button, name in self._emoji_buttons.items():
+            button.setIcon(self._emoji_icon(name))
 
     # --------------------------------------------------------------- señales
     def _connect_signals(self) -> None:
