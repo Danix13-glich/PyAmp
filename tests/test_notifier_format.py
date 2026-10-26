@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from app.notifications.notifier import (
     UNKNOWN_ARTIST_TEXT,
     format_track_notification,
@@ -70,6 +72,7 @@ def test_format_is_stable_three_tuple() -> None:
 
 
 def test_image_data_uses_list_para_el_struct_dbus(tmp_path) -> None:
+    pytest.importorskip("dbus_next")
     from dbus_next import Variant
     from PySide6.QtGui import QImage
 
