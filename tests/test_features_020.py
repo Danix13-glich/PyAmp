@@ -4,7 +4,8 @@ import wave
 from pathlib import Path
 
 import pytest
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
 import app.themes.manager as theme_manager
@@ -119,3 +120,26 @@ def test_station_initials() -> None:
     assert station_initials("Radio Paradise") == "RP"
     assert station_initials("LOS40") == "LO"
     assert station_initials("") == "R"
+
+
+def test_click_slider_drag_applies_position(qapp: QApplication) -> None:
+    from app.ui.main_window import ClickSlider
+
+    slider = ClickSlider(Qt.Orientation.Horizontal)
+    slider.setRange(0, 100)
+    slider.resize(240, 24)
+    slider.show()
+    moved: list[int] = []
+    released: list[int] = []
+    slider.sliderMoved.connect(moved.append)
+    slider.sliderReleased.connect(lambda: released.append(slider.value()))
+
+    QTest.mousePress(slider, Qt.MouseButton.LeftButton, pos=QPoint(20, 12))
+    assert slider.isSliderDown()
+    QTest.mouseMove(slider, QPoint(200, 12), delay=10)
+    QTest.mouseRelease(slider, Qt.MouseButton.LeftButton, pos=QPoint(200, 12))
+
+    assert not slider.isSliderDown()
+    assert moved
+    assert released and released[-1] > 70
+    assert slider.value() > 70

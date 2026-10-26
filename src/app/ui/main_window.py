@@ -107,20 +107,45 @@ class _FolderLoader(QThread):
 
 
 class ClickSlider(QSlider):
-    """Deslizador horizontal que salta a la posición pulsada (no a un paso)."""
+    """Deslizador horizontal que salta a la posición pulsada y permite arrastrar."""
+
+    def _value_at(self, x: float) -> int:
+        return QStyle.sliderValueFromPosition(
+            self.minimum(), self.maximum(), int(x), max(1, self.width())
+        )
+
+    def _move_to(self, x: float) -> None:
+        value = self._value_at(x)
+        self.setValue(value)
+        self.sliderMoved.emit(value)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:  # noqa: N802
         if event.button() == Qt.MouseButton.LeftButton and self.orientation() == (
             Qt.Orientation.Horizontal
         ):
-            value = QStyle.sliderValueFromPosition(
-                self.minimum(), self.maximum(), int(event.position().x()), max(1, self.width())
-            )
-            self.setValue(value)
-            self.sliderMoved.emit(value)
+            # setSliderDown inicia el arrastre y hace que la barra no sea
+            # sobrescrita por position_changed mientras se mueve.
+            self.setSliderDown(True)
+            self._move_to(event.position().x())
             event.accept()
             return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if self.isSliderDown():
+            self._move_to(event.position().x())
+            event.accept()
+            return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802
+        if event.button() == Qt.MouseButton.LeftButton and self.isSliderDown():
+            self._move_to(event.position().x())
+            # setSliderDown(False) emite sliderReleased y aplica el seek.
+            self.setSliderDown(False)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
 
 
 def _assets_dir() -> Path:
