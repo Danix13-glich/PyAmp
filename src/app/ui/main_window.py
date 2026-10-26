@@ -53,13 +53,14 @@ from app.library.database import LibraryDatabase, previous_month_key
 from app.library.metadata import format_audio_info, read_metadata, write_metadata
 from app.library.models import RadioStation, Track
 from app.library.scanner import ScannerThread
+from app.lyrics.online import OnlineLyricsWorker
 from app.notifications.notifier import Notifier
 from app.radio import RadioLibrary, RadioSearchWorker
 from app.themes import DEFAULT_THEME_ID, Theme, get_theme, load_themes, reload_themes
 from app.ui.cover_widget import CoverLabel
 from app.ui.history_window import HistoryWindow
 from app.ui.lyrics_editor import LyricsEditorDialog
-from app.ui.lyrics_window import LyricsWindow
+from app.ui.lyrics_window import LyricsWindow, find_lrc_path
 from app.ui.metadata_editor import MetadataEditorDialog
 from app.ui.radio_panel import RadioPanel
 from app.ui.settings_dialog import SettingsDialog
@@ -187,6 +188,8 @@ class MainWindow(QMainWindow):
         self._last_folder = str(Path.home())
         self._mpris: Any = None  # MprisAdapter (solo Linux; ver _init_mpris)
         self._lyrics_window: LyricsWindow | None = None
+        self._lyrics_search: OnlineLyricsWorker | None = None
+        self._lyrics_pending: Track | None = None
         self._radio_station: RadioStation | None = None
         self._radio_search: RadioSearchWorker | None = None
         #: True mientras la vista activa es la de radio (oculta transporte local).
@@ -910,6 +913,7 @@ class MainWindow(QMainWindow):
     def _on_track_changed(self, track: object) -> None:
         if isinstance(track, Track):
             self._show_track(track)
+            self._ensure_online_lyrics(track)
 
     def _show_track(self, track: Track) -> None:
         self._label_title.setText(track.display_title)
@@ -1562,6 +1566,53 @@ class MainWindow(QMainWindow):
         ):
             self._lyrics_window.show_track(track)
 
+    def _ensure_online_lyrics(self, track: Track) -> None:
+        if not track.path or "://" in track.path:
+            return
+        if find_lrc_path(track.path) is not None:
+            return
+        if self._lyrics_search is not None and self._lyrics_search.isRunning():
+            # Solo se guarda la última pista: las respuestas viejas se ignoran.
+            self._lyrics_pending = track
+            return
+        self._start_online_lyrics(track)
+
+    def _start_online_lyrics(self, track: Track) -> None:
+        self._lyrics_pending = None
+        worker = OnlineLyricsWorker(track, self)
+        self._lyrics_search = worker
+        worker.found.connect(self._on_online_lyrics_found)
+        worker.missing.connect(self._on_online_lyrics_missing)
+        worker.finished.connect(self._on_online_lyrics_finished)
+        worker.finished.connect(worker.deleteLater)
+        if self._lyrics_window is not None and self._lyrics_window.isVisible():
+            self._lyrics_window.set_status(tr("Buscando letra en internet…"))
+        worker.start()
+
+    def _on_online_lyrics_found(self, track_path: str, lrc_path: str) -> None:
+        current = self._player.current_track
+        if current is None or current.path != track_path:
+            return
+        logger.info("Letra online guardada: %s", lrc_path)
+        self.statusBar().showMessage(tr("Letra encontrada en internet"), ERROR_TIMEOUT_MS)
+        if self._lyrics_window is not None and self._lyrics_window.isVisible():
+            self._lyrics_window.show_track(current)
+
+    def _on_online_lyrics_missing(self, track_path: str) -> None:
+        current = self._player.current_track
+        if current is None or current.path != track_path:
+            return
+        if self._lyrics_window is not None and self._lyrics_window.isVisible():
+            self._lyrics_window.set_status(tr("No se encontró letra en internet"))
+
+    def _on_online_lyrics_finished(self) -> None:
+        self._lyrics_search = None
+        pending = self._lyrics_pending
+        self._lyrics_pending = None
+        current = self._player.current_track
+        if pending is not None and current is not None and pending.path == current.path:
+            self._ensure_online_lyrics(pending)
+
     def _on_show_lyrics(self) -> None:
         if self._lyrics_window is None:
             self._lyrics_window = LyricsWindow(self)
@@ -1683,6 +1734,13 @@ class MainWindow(QMainWindow):
         if self._scanner is not None and self._scanner.isRunning():
             self._scanner.cancel()
             self._scanner.wait(10000)
+        if (
+            self._lyrics_search is not None
+            and self._lyrics_search.isRunning()
+            and not self._lyrics_search.wait(8000)
+        ):
+            self._lyrics_search.terminate()
+            self._lyrics_search.wait(1000)
         if self._lyrics_window is not None:
             self._lyrics_window.close()
         if self._mpris is not None:

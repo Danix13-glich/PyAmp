@@ -128,6 +128,9 @@ class LyricsWindow(QDialog):
     def showing_placeholder(self) -> bool:
         return not self._placeholder.isHidden()
 
+    def set_status(self, text: str) -> None:
+        self._status.setText(text)
+
     def show_track(self, track: Track | None) -> None:
         self._entries = []
         self._times = []
