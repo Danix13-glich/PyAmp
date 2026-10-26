@@ -5,9 +5,10 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QEventLoop, QTimer
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from app.core.player import STATE_PLAYING, Player
+from app.core.player import RESUME_SEEK_DELAY_MS, STATE_PLAYING, Player
 from app.core.settings import Settings, get_settings
 
 #: Duración del WAV de prueba y espera del tick de sondeo.
@@ -102,6 +103,7 @@ class FakeBackend:
         self.on_finished = None
         self.on_error = None
         self.loaded: list[str] = []
+        self.seeks: list[int] = []
         self._muted = False
 
     def load(self, path: str) -> None:
@@ -111,7 +113,9 @@ class FakeBackend:
     def pause(self) -> None: ...
     def resume(self) -> None: ...
     def stop(self) -> None: ...
-    def seek(self, position_ms: int) -> None: ...
+    def seek(self, position_ms: int) -> None:
+        self.seeks.append(position_ms)
+
     def set_volume(self, volume: int) -> None: ...
     def get_volume(self) -> int:
         return 100
@@ -262,3 +266,53 @@ def test_vlc_end_callback_no_llama_a_vlc_reentrante() -> None:
     backend._on_end(None)  # noqa: SLF001 - test del callback
 
     assert calls == ["finished"]
+
+
+def test_last_playback_roundtrip(tmp_path: Path) -> None:
+    settings = _isolated_settings(tmp_path)
+    assert settings.last_playback is None
+
+    settings.last_playback = {
+        "path": "/tmp/cancion.mp3",
+        "position_ms": 42000,
+        "state": "playing",
+    }
+
+    restored = _isolated_settings(tmp_path).last_playback
+    assert restored == {
+        "path": "/tmp/cancion.mp3",
+        "position_ms": 42000,
+        "state": "playing",
+    }
+
+    settings.last_playback = {"path": "/tmp/cancion.mp3", "position_ms": 0}
+    assert _isolated_settings(tmp_path).last_playback is None
+
+
+def test_resume_position_se_aplica_tras_arrancar(qapp: QApplication, tmp_path: Path) -> None:
+    settings = _isolated_settings(tmp_path)
+    player, backend = _fake_player(settings=settings)
+    try:
+        player.set_resume_position(42000, "/tmp/fake-0.wav")
+        assert player.play_index(0) is True
+        assert backend.seeks == []  # VLC necesita un instante para cargar
+
+        QTest.qWait(RESUME_SEEK_DELAY_MS + 100)
+
+        assert backend.seeks == [42000]
+    finally:
+        player.shutdown()
+
+
+def test_resume_position_no_afecta_a_otra_pista(qapp: QApplication, tmp_path: Path) -> None:
+    settings = _isolated_settings(tmp_path)
+    player, backend = _fake_player(settings=settings)
+    try:
+        player.set_resume_position(42000, "/tmp/fake-2.wav")
+        assert player.play_index(0) is True
+
+        QTest.qWait(RESUME_SEEK_DELAY_MS + 100)
+
+        assert backend.seeks == []
+    finally:
+        player.shutdown()

@@ -28,6 +28,9 @@ POLL_INTERVAL_MS = 250
 #: Pequeña espera tras "fin de pista" antes de avanzar (VLC termina su
 #: limpieza interna en su propio hilo).
 AUTO_ADVANCE_DELAY_MS = 100
+#: Margen para que VLC tenga la pista cargada antes de aplicar la posición
+#: guardada al reabrir la app.
+RESUME_SEEK_DELAY_MS = 250
 
 _MERGED_FIELDS = (
     "title",
@@ -77,6 +80,9 @@ class Player(QObject):
         self._repeat = bool(self._settings.repeat)
         #: Pista sintética de la emisora en curso (None si suena un archivo).
         self._stream_track: Track | None = None
+        #: Posición pendiente de aplicar cuando suene una pista concreta.
+        self._resume_position_ms = 0
+        self._resume_path: str | None = None
 
         # NB: `_audio_error_msg` NO se llama `_backend_error` para no pisar
         # la señal Qt `_backend_error`.
@@ -198,6 +204,7 @@ class Player(QObject):
         # La emisora pasa a ser la pista actual: así MPRIS, notificaciones y
         # la cabecera muestran el nombre de la radio, no la última canción.
         self._stream_track = track
+        self.clear_resume_position()
         self._duration = 0
         self._set_state(STATE_PLAYING)
         self._timer.start()
@@ -251,6 +258,7 @@ class Player(QObject):
         self._stream_track = None
         self._timer.stop()
         self._duration = 0
+        self.clear_resume_position()
         self._set_state(STATE_STOPPED)
         self.position_changed.emit(0)
         self.duration_changed.emit(0)
@@ -291,6 +299,19 @@ class Player(QObject):
             return
         self._backend.seek(max(0, int(position_ms)))
         self.position_changed.emit(max(0, int(position_ms)))
+
+    def set_resume_position(self, position_ms: int, path: str | None = None) -> None:
+        target = str(path or (self.current_track.path if self.current_track else ""))
+        position = max(0, int(position_ms))
+        if not target or position <= 0:
+            self.clear_resume_position()
+            return
+        self._resume_position_ms = position
+        self._resume_path = target
+
+    def clear_resume_position(self) -> None:
+        self._resume_position_ms = 0
+        self._resume_path = None
 
     # ------------------------------------------------------------------ volumen
     def set_volume(self, volume: int) -> None:
@@ -343,6 +364,7 @@ class Player(QObject):
 
         self._stream_track = None
         self._merge_metadata(track)
+        resume_ms = self._take_resume_position(track.path)
         try:
             backend.load(track.path)
             backend.play()
@@ -354,10 +376,35 @@ class Player(QObject):
         self._duration = 0
         self._set_state(STATE_PLAYING)
         self._timer.start()
+        if resume_ms > 0:
+            # VLC necesita un instante para conocer la duración antes del seek.
+            QTimer.singleShot(RESUME_SEEK_DELAY_MS, self._apply_resume_position)
+            self.position_changed.emit(resume_ms)
         # Orden: primero track_changed (el Notifier reacciona), luego estado.
         self.track_changed.emit(track)
         self.playback_state_changed.emit(STATE_PLAYING)
         return True
+
+    def _take_resume_position(self, path: str) -> int:
+        if not self._resume_path or self._resume_position_ms <= 0:
+            return 0
+        if self._resume_path != path:
+            self.clear_resume_position()
+            return 0
+        return self._resume_position_ms
+
+    def _apply_resume_position(self) -> None:
+        backend = self._backend
+        path = self._resume_path
+        position = self._resume_position_ms
+        if backend is None or not path or position <= 0:
+            return
+        current = self.current_track
+        if current is None or current.path != path or self._state == STATE_STOPPED:
+            return
+        backend.seek(position)
+        self.position_changed.emit(position)
+        self.clear_resume_position()
 
     def _merge_metadata(self, track: Track) -> None:
         try:

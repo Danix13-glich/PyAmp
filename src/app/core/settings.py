@@ -16,6 +16,7 @@ KEY_SHUFFLE = "playback/shuffle"
 KEY_REPEAT = "playback/repeat"
 KEY_PLAYLIST_PATHS = "playlist/paths"
 KEY_PLAYLIST_INDEX = "playlist/current_index"
+KEY_LAST_PLAYBACK = "playback/last"
 KEY_NOTIFICATIONS_ENABLED = "notifications/enabled"
 KEY_NOTIFICATIONS_TIMEOUT_MS = "notifications/timeout_ms"
 KEY_WINDOW_GEOMETRY = "window/geometry"
@@ -198,6 +199,51 @@ class Settings:
     @playlist_index.setter
     def playlist_index(self, index: int) -> None:
         self.set_value(KEY_PLAYLIST_INDEX, int(index))
+
+    @property
+    def last_playback(self) -> dict[str, str | int] | None:
+        raw = self._raw(KEY_LAST_PLAYBACK, "")
+        if not raw:
+            return None
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+            except (TypeError, ValueError):
+                return None
+        elif isinstance(raw, dict):
+            data = raw
+        else:
+            return None
+        if not isinstance(data, dict):
+            return None
+        path = str(data.get("path", "")).strip()
+        try:
+            position_ms = int(data.get("position_ms", 0))
+        except (TypeError, ValueError):
+            return None
+        state = str(data.get("state", "paused"))
+        if not path or position_ms <= 0:
+            return None
+        if state not in {"playing", "paused"}:
+            state = "paused"
+        return {"path": path, "position_ms": position_ms, "state": state}
+
+    @last_playback.setter
+    def last_playback(self, value: dict[str, str | int] | None) -> None:
+        data = value or {}
+        path = str(data.get("path", "")).strip()
+        try:
+            position_ms = int(data.get("position_ms", 0))
+        except (TypeError, ValueError):
+            position_ms = 0
+        state = str(data.get("state", "paused"))
+        if state not in {"playing", "paused"}:
+            state = "paused"
+        if not path or position_ms <= 0:
+            self.set_value(KEY_LAST_PLAYBACK, "")
+            return
+        payload = {"path": path, "position_ms": position_ms, "state": state}
+        self.set_value(KEY_LAST_PLAYBACK, json.dumps(payload, ensure_ascii=False))
 
     # --------------------------------------------------------------- ventana
     @property

@@ -83,6 +83,9 @@ logger = logging.getLogger(__name__)
 
 WINDOW_TITLE = "PyAmp"
 ERROR_TIMEOUT_MS = 10000
+#: No guardar posiciones casi al principio ni casi al final de la pista.
+RESUME_MIN_MS = 3000
+RESUME_END_MARGIN_MS = 3000
 VOLUME_SLIDER_WIDTH = 140
 
 #: Separación (px) entre la ventana principal y la de letra.
@@ -1711,6 +1714,53 @@ class MainWindow(QMainWindow):
         self._button_mute.setIcon(self._transport_icon(standard))
 
     # -------------------------------------------------------- persistencia
+    def _resume_for(self, track: Track) -> dict[str, str | int] | None:
+        resume = self._settings.last_playback
+        if resume is None:
+            return None
+        if str(resume["path"]) != track.path:
+            self._settings.last_playback = None
+            return None
+        position = int(resume["position_ms"])
+        duration = track.duration_ms
+        if position < RESUME_MIN_MS or (
+            duration > 0 and position >= duration - RESUME_END_MARGIN_MS
+        ):
+            self._settings.last_playback = None
+            return None
+        return resume
+
+    def _show_saved_position(self, position_ms: int) -> None:
+        self._slider_seek.blockSignals(True)
+        self._slider_seek.setValue(position_ms)
+        self._slider_seek.blockSignals(False)
+        self._update_time_label(position_ms)
+
+    def _save_playback_state(self) -> None:
+        state = self._player.state
+        track = self._player.current_track
+        if (
+            state not in (STATE_PLAYING, STATE_PAUSED)
+            or track is None
+            or self._player.is_stream
+            or not track.path
+            or "://" in track.path
+        ):
+            self._settings.last_playback = None
+            return
+        position = self._player.position_ms()
+        duration = self._player.duration_ms() or track.duration_ms
+        if position < RESUME_MIN_MS or (
+            duration > 0 and position >= duration - RESUME_END_MARGIN_MS
+        ):
+            self._settings.last_playback = None
+            return
+        self._settings.last_playback = {
+            "path": track.path,
+            "position_ms": position,
+            "state": state,
+        }
+
     def _restore_state(self) -> None:
         geometry = self._settings.window_geometry
         if geometry is not None:
@@ -1736,10 +1786,17 @@ class MainWindow(QMainWindow):
                     track.duration_ms = info.duration_ms or track.duration_ms
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("Metadatos de restauración omitidos: %s", exc)
+                resume = self._resume_for(track)
                 if self._settings.view_mode == VIEW_RADIO:
                     self._reset_header()
                 else:
                     self._show_track(track)
+                    if resume is not None:
+                        position = int(resume["position_ms"])
+                        self._player.set_resume_position(position, track.path)
+                        self._show_saved_position(position)
+                        if resume["state"] == STATE_PLAYING:
+                            self._player.play_index(index)
 
         self._slider_volume.blockSignals(True)
         self._slider_volume.setValue(self._settings.volume)
@@ -1751,6 +1808,7 @@ class MainWindow(QMainWindow):
             self._update_mute_icon(True)
 
     def closeEvent(self, event: object) -> None:
+        self._save_playback_state()
         self._settings.window_geometry = self.saveGeometry()
         self._settings.playlist_paths = [track.path for track in self._player.playlist]
         self._settings.playlist_index = self._player.playlist.current_index
