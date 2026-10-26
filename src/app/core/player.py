@@ -29,8 +29,12 @@ POLL_INTERVAL_MS = 250
 #: limpieza interna en su propio hilo).
 AUTO_ADVANCE_DELAY_MS = 100
 #: Margen para que VLC tenga la pista cargada antes de aplicar la posición
-#: guardada al reabrir la app.
-RESUME_SEEK_DELAY_MS = 250
+#: guardada al reabrir la app. Un seek demasiado pronto cae en otra posición.
+RESUME_SEEK_DELAY_MS = 900
+#: Tras saltar, se comprueba que VLC quedó cerca del punto pedido.
+RESUME_VERIFY_DELAY_MS = 500
+RESUME_POSITION_TOLERANCE_MS = 2000
+RESUME_MAX_ATTEMPTS = 3
 
 _MERGED_FIELDS = (
     "title",
@@ -83,6 +87,7 @@ class Player(QObject):
         #: Posición pendiente de aplicar cuando suene una pista concreta.
         self._resume_position_ms = 0
         self._resume_path: str | None = None
+        self._resume_attempts = 0
 
         # NB: `_audio_error_msg` NO se llama `_backend_error` para no pisar
         # la señal Qt `_backend_error`.
@@ -297,6 +302,8 @@ class Player(QObject):
         if self._backend is None:
             self._emit_unavailable()
             return
+        # Un salto manual del usuario tiene prioridad sobre la reanudación.
+        self.clear_resume_position()
         self._backend.seek(max(0, int(position_ms)))
         self.position_changed.emit(max(0, int(position_ms)))
 
@@ -308,10 +315,12 @@ class Player(QObject):
             return
         self._resume_position_ms = position
         self._resume_path = target
+        self._resume_attempts = 0
 
     def clear_resume_position(self) -> None:
         self._resume_position_ms = 0
         self._resume_path = None
+        self._resume_attempts = 0
 
     # ------------------------------------------------------------------ volumen
     def set_volume(self, volume: int) -> None:
@@ -349,6 +358,7 @@ class Player(QObject):
 
     def shutdown(self) -> None:
         self._timer.stop()
+        self.clear_resume_position()
         if self._backend is not None:
             self._backend.release()
             self._backend = None
@@ -402,9 +412,37 @@ class Player(QObject):
         current = self.current_track
         if current is None or current.path != path or self._state == STATE_STOPPED:
             return
+        self._resume_attempts += 1
         backend.seek(position)
         self.position_changed.emit(position)
-        self.clear_resume_position()
+        # VLC puede aceptar el seek pero quedarse en otro punto si aún está
+        # terminando de abrir el archivo; se comprueba y se reintenta.
+        QTimer.singleShot(RESUME_VERIFY_DELAY_MS, self._verify_resume_position)
+
+    def _verify_resume_position(self) -> None:
+        backend = self._backend
+        path = self._resume_path
+        position = self._resume_position_ms
+        if backend is None or not path or position <= 0:
+            return
+        current = self.current_track
+        if current is None or current.path != path:
+            self.clear_resume_position()
+            return
+        if self._state == STATE_STOPPED:
+            return
+        if abs(backend.position_ms() - position) <= RESUME_POSITION_TOLERANCE_MS:
+            self.clear_resume_position()
+            return
+        if self._resume_attempts >= RESUME_MAX_ATTEMPTS:
+            logger.warning(
+                "No se pudo reanudar en %d ms; VLC está en %d ms",
+                position,
+                backend.position_ms(),
+            )
+            self.clear_resume_position()
+            return
+        QTimer.singleShot(RESUME_VERIFY_DELAY_MS, self._apply_resume_position)
 
     def _merge_metadata(self, track: Track) -> None:
         try:

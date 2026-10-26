@@ -8,7 +8,12 @@ from PySide6.QtCore import QEventLoop, QTimer
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from app.core.player import RESUME_SEEK_DELAY_MS, STATE_PLAYING, Player
+from app.core.player import (
+    RESUME_SEEK_DELAY_MS,
+    RESUME_VERIFY_DELAY_MS,
+    STATE_PLAYING,
+    Player,
+)
 from app.core.settings import Settings, get_settings
 
 #: Duración del WAV de prueba y espera del tick de sondeo.
@@ -104,6 +109,7 @@ class FakeBackend:
         self.on_error = None
         self.loaded: list[str] = []
         self.seeks: list[int] = []
+        self.position = 0
         self._muted = False
 
     def load(self, path: str) -> None:
@@ -115,6 +121,7 @@ class FakeBackend:
     def stop(self) -> None: ...
     def seek(self, position_ms: int) -> None:
         self.seeks.append(position_ms)
+        self.position = position_ms
 
     def set_volume(self, volume: int) -> None: ...
     def get_volume(self) -> int:
@@ -133,7 +140,7 @@ class FakeBackend:
         return False
 
     def position_ms(self) -> int:
-        return 0
+        return int(self.position)
 
     def duration_ms(self) -> int:
         return 0
@@ -314,5 +321,33 @@ def test_resume_position_no_afecta_a_otra_pista(qapp: QApplication, tmp_path: Pa
         QTest.qWait(RESUME_SEEK_DELAY_MS + 100)
 
         assert backend.seeks == []
+    finally:
+        player.shutdown()
+
+
+def test_resume_reintenta_si_vlc_cae_en_otro_punto(qapp: QApplication, tmp_path: Path) -> None:
+    settings = _isolated_settings(tmp_path)
+    player, backend = _fake_player(settings=settings)
+    original_seek = backend.seek
+    first_attempt = True
+
+    def flaky_seek(position_ms: int) -> None:
+        nonlocal first_attempt
+        if first_attempt:
+            first_attempt = False
+            backend.seeks.append(position_ms)
+            backend.position = position_ms // 2  # seek temprano incorrecto
+            return
+        original_seek(position_ms)
+
+    backend.seek = flaky_seek  # type: ignore[method-assign]
+    try:
+        player.set_resume_position(42000, "/tmp/fake-0.wav")
+        assert player.play_index(0) is True
+
+        QTest.qWait(RESUME_SEEK_DELAY_MS + RESUME_VERIFY_DELAY_MS + RESUME_VERIFY_DELAY_MS + 200)
+
+        assert backend.position == 42000
+        assert backend.seeks == [42000, 42000]
     finally:
         player.shutdown()
