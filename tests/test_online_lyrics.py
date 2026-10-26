@@ -69,7 +69,60 @@ def test_fetch_lyrics_guarda_lrc(tmp_path: Path, monkeypatch) -> None:
 
     result = online.fetch_lyrics(track)
 
-    assert result == tmp_path / "song.lrc"
+    assert result == tmp_path / "music" / "song.lrc"
+    assert result is not None
+    assert "[00:01.00]Hola" in result.read_text(encoding="utf-8")
+
+
+def test_fetch_lyrics_usa_la_letra_antigua_de_la_carpeta_de_datos(
+    tmp_path: Path, monkeypatch
+) -> None:
+    lyrics_dir = tmp_path / "datos"
+    monkeypatch.setattr(online, "LYRICS_DIR", lyrics_dir)
+    shared = lyrics_dir / "song.lrc"
+    shared.parent.mkdir(parents=True)
+    shared.write_text("[00:01.00]Vieja", encoding="utf-8")
+
+    def _falla(*_args, **_kwargs):
+        raise AssertionError("no debe buscar si ya hay una letra guardada")
+
+    monkeypatch.setattr(online, "_search_candidates", _falla)
+    track = Track(
+        path=str(tmp_path / "music" / "song.mp3"),
+        title="Song",
+        artist="Artist",
+        duration_ms=200_000,
+    )
+    assert online.fetch_lyrics(track) == shared
+
+
+def test_fetch_lyrics_cae_en_la_carpeta_de_datos_si_no_puede_escribir(
+    tmp_path: Path, monkeypatch
+) -> None:
+    lyrics_dir = tmp_path / "datos"
+    monkeypatch.setattr(online, "LYRICS_DIR", lyrics_dir)
+    candidate = _candidate(synced="[00:01.00]Hola")
+    monkeypatch.setattr(
+        online, "_search_candidates", lambda title, artist, timeout_s=0: [candidate]
+    )
+    original_save = online.save_lyrics
+
+    def _save_sin_permiso(track, lyrics, *, destination=None):
+        if destination is not None and destination.parent == tmp_path / "music":
+            raise OSError("sin permiso")
+        return original_save(track, lyrics, destination=destination)
+
+    monkeypatch.setattr(online, "save_lyrics", _save_sin_permiso)
+    track = Track(
+        path=str(tmp_path / "music" / "song.mp3"),
+        title="Song",
+        artist="Artist",
+        duration_ms=200_000,
+    )
+
+    result = online.fetch_lyrics(track)
+
+    assert result == lyrics_dir / "song.lrc"
     assert result is not None
     assert "[00:01.00]Hola" in result.read_text(encoding="utf-8")
 

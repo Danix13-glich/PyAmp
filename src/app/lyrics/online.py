@@ -170,6 +170,11 @@ def search_lyrics(track: Track, timeout_s: int = REQUEST_TIMEOUT_S) -> OnlineLyr
 
 
 def target_path(track: Track) -> Path:
+    # Junto al audio: «Cancion.mp3» → «Cancion.lrc».
+    return Path(track.path).with_suffix(".lrc")
+
+
+def shared_path(track: Track) -> Path:
     return LYRICS_DIR / f"{Path(track.path).stem}.lrc"
 
 
@@ -183,26 +188,23 @@ def save_lyrics(track: Track, lyrics: OnlineLyrics, *, destination: Path | None 
 def fetch_lyrics(track: Track, *, force: bool = False) -> Path | None:
     if not track.path or "://" in track.path:
         return None
-    sidecar = Path(track.path).with_suffix(".lrc")
-    target = target_path(track)
+    sidecar = target_path(track)
+    shared = shared_path(track)
     if not force:
         if sidecar.is_file():
             return sidecar
-        if target.is_file():
-            return target
+        # Compatibilidad con letras descargadas antes en la carpeta de datos.
+        if shared.is_file():
+            return shared
     lyrics = search_lyrics(track)
     if lyrics is None:
         return None
-    # Si el usuario pide buscar y ya había un .lrc vacío, se rellena ese mismo
-    # archivo; si no, se guarda en la carpeta de letras de PyAmp.
-    destination = target
-    if force and sidecar.is_file():
-        try:
-            if not sidecar.read_text(encoding="utf-8", errors="replace").strip():
-                destination = sidecar
-        except OSError:
-            pass
-    return save_lyrics(track, lyrics, destination=destination)
+    try:
+        return save_lyrics(track, lyrics, destination=sidecar)
+    except OSError as exc:
+        # Carpeta de música sin permiso de escritura: se usa la carpeta de datos.
+        logger.warning("No se pudo guardar la letra junto a %s: %s", track.path, exc)
+        return save_lyrics(track, lyrics, destination=shared)
 
 
 class OnlineLyricsWorker(QThread):
