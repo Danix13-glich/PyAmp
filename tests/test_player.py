@@ -245,3 +245,20 @@ def test_shuffle_and_repeat_persist_in_settings(qapp: QApplication, tmp_path) ->
         assert settings.shuffle is False and settings.repeat is False
     finally:
         player.shutdown()
+
+
+def test_vlc_end_callback_no_llama_a_vlc_reentrante() -> None:
+    from app.audio.vlc_backend import VlcBackend
+
+    backend = VlcBackend.__new__(VlcBackend)
+    calls: list[str] = []
+
+    class _Analyzer:
+        def stop(self) -> None:
+            calls.append("stop")
+
+    backend._analyzer = _Analyzer()  # noqa: SLF001 - test del callback
+    backend.on_finished = lambda: calls.append("finished")
+    backend._on_end(None)  # noqa: SLF001 - test del callback
+
+    assert calls == ["finished"]

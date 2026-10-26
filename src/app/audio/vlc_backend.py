@@ -106,11 +106,20 @@ class VlcBackend(AudioBackend):
                 break
         self._spectrum_buffer = buffer
 
-    def _load_analyzer(self, media: Any) -> None:
+    def _load_analyzer(self, text: str) -> None:
         if self._analyzer is None:
             return
+        # El analizador necesita su propio objeto Media: compartirlo con el
+        # reproductor principal hace que libVLC libere eventos dos veces al
+        # cambiar de pista y termine en SIGSEGV.
         with contextlib.suppress(Exception):
-            self._analyzer.set_media(media)
+            if "://" in text:
+                media = self._instance.media_new_location(text)
+            else:
+                media = self._instance.media_new_path(str(Path(text).expanduser().resolve()))
+            if media is not None:
+                self._analyzer.set_media(media)
+                media.release()
         self._spectrum_buffer = np.zeros(0, dtype=np.float32)
 
     # ------------------------------------------------------------------ carga
@@ -125,8 +134,12 @@ class VlcBackend(AudioBackend):
             media = self._instance.media_new_path(str(file_path.resolve()))
         if media is None:
             raise BackendError(f"VLC no pudo cargar: {path}")
+        # Cambiar de media mientras suena (o justo al acabar) es una de las
+        # causas de SIGSEGV en libVLC. Se detienen ambos reproductores desde
+        # el hilo de UI antes de asignar la pista nueva.
+        self._stop_players()
         self._player.set_media(media)
-        self._load_analyzer(media)
+        self._load_analyzer(text)
         self._has_media = True
         with contextlib.suppress(Exception):  # el player mantiene su referencia
             media.release()
@@ -150,11 +163,18 @@ class VlcBackend(AudioBackend):
             with contextlib.suppress(Exception):
                 self._analyzer.set_pause(0)
 
-    def stop(self) -> None:
-        self._player.stop()
+    def _stop_players(self) -> None:
+        if not self._has_media:
+            return
+        with contextlib.suppress(Exception):
+            self._player.stop()
         if self._analyzer is not None:
             with contextlib.suppress(Exception):
                 self._analyzer.stop()
+
+    def stop(self) -> None:
+        self._stop_players()
+        self._has_media = False
         self._spectrum_buffer = np.zeros(0, dtype=np.float32)
 
     def seek(self, position_ms: int) -> None:
@@ -231,8 +251,9 @@ class VlcBackend(AudioBackend):
     def release(self) -> None:
         try:
             self._player.stop()
+            self._player.release()
         except Exception as exc:  # noqa: BLE001
-            logger.debug("release: stop falló (%s)", exc)
+            logger.debug("release: stop/release falló (%s)", exc)
         if self._analyzer is not None:
             with contextlib.suppress(Exception):
                 self._analyzer.stop()
@@ -246,9 +267,10 @@ class VlcBackend(AudioBackend):
 
     # ----------------------------------------------------------------- eventos
     def _on_end(self, _event: Any) -> None:
-        if self._analyzer is not None:
-            with contextlib.suppress(Exception):
-                self._analyzer.stop()
+        # Este callback se ejecuta en el hilo de eventos de libVLC. Llamar
+        # aquí a cualquier función de VLC (por ejemplo analyzer.stop()) es
+        # reentrante y termina en SIGSEGV. Solo se avisa al reproductor; la
+        # parada real ocurre en el hilo de UI al cargar o detener la pista.
         if self.on_finished is not None:
             self.on_finished()
 
