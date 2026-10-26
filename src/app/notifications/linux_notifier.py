@@ -22,7 +22,7 @@ INTERFACE = "org.freedesktop.Notifications"
 NOTIFY_SIGNATURE = "susssasa{sv}i"
 
 
-def _image_data(image_path: str) -> tuple[int, int, int, bool, int, int, bytes] | None:
+def _image_data(image_path: str) -> list[Any] | None:
     try:
         from PySide6.QtGui import QImage
 
@@ -30,7 +30,8 @@ def _image_data(image_path: str) -> tuple[int, int, int, bool, int, int, bytes] 
         if image.isNull():
             return None
         image = image.convertToFormat(QImage.Format.Format_RGBA8888)
-        return (
+        # dbus-next exige una lista (no una tupla) para los STRUCT.
+        return [
             image.width(),
             image.height(),
             image.bytesPerLine(),
@@ -38,7 +39,7 @@ def _image_data(image_path: str) -> tuple[int, int, int, bool, int, int, bytes] 
             8,
             4,
             bytes(image.constBits()),
-        )
+        ]
     except Exception as exc:  # noqa: BLE001 - la carátula es opcional
         logger.debug("No se pudo convertir la carátula %s: %s", image_path, exc)
         return None

@@ -67,3 +67,20 @@ def test_format_is_stable_three_tuple() -> None:
     assert isinstance(result, tuple)
     assert len(result) == 3
     assert all(isinstance(part, str) and part for part in result)
+
+
+def test_image_data_uses_list_para_el_struct_dbus(tmp_path) -> None:
+    from dbus_next import Variant
+    from PySide6.QtGui import QImage
+
+    from app.notifications.linux_notifier import _image_data
+
+    image = QImage(4, 4, QImage.Format.Format_RGB32)
+    image.fill(0xFF0000)
+    path = tmp_path / "cover.png"
+    assert image.save(str(path))
+
+    data = _image_data(str(path))
+    assert isinstance(data, list)
+    # No debe lanzar: dbus-next exige list para el STRUCT (iiibiiay).
+    Variant("(iiibiiay)", data)
