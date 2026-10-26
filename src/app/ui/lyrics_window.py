@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
     QListWidgetItem,
+    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -63,6 +64,7 @@ def find_lrc_path(track_path: str) -> Path | None:
 class LyricsWindow(QDialog):
 
     seek_requested = Signal(int)
+    search_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -94,8 +96,23 @@ class LyricsWindow(QDialog):
         placeholder_font.setPointSize(placeholder_font.pointSize() + 1)
         self._placeholder.setFont(placeholder_font)
         self._placeholder.setStyleSheet("color: #9e9ea6;")
-        layout.addWidget(self._placeholder, stretch=1)
-        self._placeholder.hide()
+
+        self._search_button = QPushButton(tr("Buscar letra en internet"))
+        self._search_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._search_button.clicked.connect(self._on_search_clicked)
+        self._search_button.hide()
+
+        # Texto vacío + botón, centrados como un bloque.
+        self._empty_view = QWidget()
+        empty_layout = QVBoxLayout(self._empty_view)
+        empty_layout.setContentsMargins(0, 0, 0, 0)
+        empty_layout.setSpacing(14)
+        empty_layout.addStretch(1)
+        empty_layout.addWidget(self._placeholder)
+        empty_layout.addWidget(self._search_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        empty_layout.addStretch(1)
+        self._empty_view.hide()
+        layout.addWidget(self._empty_view, stretch=1)
 
         self._status = QLabel("")
         self._status.setWordWrap(True)
@@ -115,6 +132,9 @@ class LyricsWindow(QDialog):
         if 0 <= row < len(self._times):
             self.seek_requested.emit(self._times[row])
 
+    def _on_search_clicked(self) -> None:
+        self.search_requested.emit()
+
     # ------------------------------------------------------------ API pública
     @property
     def entries(self) -> list[tuple[int, str]]:
@@ -128,8 +148,18 @@ class LyricsWindow(QDialog):
     def showing_placeholder(self) -> bool:
         return not self._placeholder.isHidden()
 
+    @property
+    def search_offered(self) -> bool:
+        return not self._search_button.isHidden()
+
     def set_status(self, text: str) -> None:
         self._status.setText(text)
+
+    def set_searching(self, searching: bool) -> None:
+        self._search_button.setEnabled(not searching)
+        self._search_button.setText(
+            tr("Buscando letra…") if searching else tr("Buscar letra en internet")
+        )
 
     def show_track(self, track: Track | None) -> None:
         self._entries = []
@@ -153,7 +183,7 @@ class LyricsWindow(QDialog):
                     stem=stem, directory=LYRICS_DIR
                 )
             )
-            self._set_placeholder(True)
+            self._set_placeholder(True, offer_search=True)
             return
 
         try:
@@ -163,17 +193,15 @@ class LyricsWindow(QDialog):
             self._status.setText(
                 tr("No se pudo leer {name}: {error}").format(name=lrc_path.name, error=exc)
             )
-            self._set_placeholder(True)
+            self._set_placeholder(True, offer_search=True)
             return
 
         self._entries = parse_lrc(text)
         if not self._entries:
             raw = text.strip()
             if not raw:
-                self._status.setText(
-                    tr("{name}: sin marcas de tiempo [mm:ss]").format(name=lrc_path.name)
-                )
-                self._set_placeholder(True)
+                self._status.setText(tr("La letra está vacía"))
+                self._set_placeholder(True, offer_search=True)
                 return
             self._list.addItem(raw)
             self._status.setText(
@@ -186,9 +214,13 @@ class LyricsWindow(QDialog):
             self._list.addItem(lyric)
         self._times = [position_ms for position_ms, _lyric in self._entries]
 
-    def _set_placeholder(self, visible: bool) -> None:
+    def _set_placeholder(self, visible: bool, *, offer_search: bool = False) -> None:
         self._placeholder.setVisible(visible)
+        self._empty_view.setVisible(visible)
         self._list.setVisible(not visible)
+        self._search_button.setVisible(visible and offer_search)
+        if not (visible and offer_search):
+            self.set_searching(False)
 
     def sync_position(self, position_ms: int) -> None:
         if not self._times:

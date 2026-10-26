@@ -173,26 +173,36 @@ def target_path(track: Track) -> Path:
     return LYRICS_DIR / f"{Path(track.path).stem}.lrc"
 
 
-def save_lyrics(track: Track, lyrics: OnlineLyrics) -> Path:
-    path = target_path(track)
+def save_lyrics(track: Track, lyrics: OnlineLyrics, *, destination: Path | None = None) -> Path:
+    path = destination or target_path(track)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(lyrics.text + "\n", encoding="utf-8")
     return path
 
 
-def fetch_lyrics(track: Track) -> Path | None:
+def fetch_lyrics(track: Track, *, force: bool = False) -> Path | None:
     if not track.path or "://" in track.path:
         return None
     sidecar = Path(track.path).with_suffix(".lrc")
-    if sidecar.is_file():
-        return sidecar
     target = target_path(track)
-    if target.is_file():
-        return target
+    if not force:
+        if sidecar.is_file():
+            return sidecar
+        if target.is_file():
+            return target
     lyrics = search_lyrics(track)
     if lyrics is None:
         return None
-    return save_lyrics(track, lyrics)
+    # Si el usuario pide buscar y ya había un .lrc vacío, se rellena ese mismo
+    # archivo; si no, se guarda en la carpeta de letras de PyAmp.
+    destination = target
+    if force and sidecar.is_file():
+        try:
+            if not sidecar.read_text(encoding="utf-8", errors="replace").strip():
+                destination = sidecar
+        except OSError:
+            pass
+    return save_lyrics(track, lyrics, destination=destination)
 
 
 class OnlineLyricsWorker(QThread):
@@ -201,13 +211,18 @@ class OnlineLyricsWorker(QThread):
     #: Ruta de la pista para la que no se encontró una letra válida.
     missing = Signal(str)
 
-    def __init__(self, track: Track, parent: object | None = None) -> None:
+    def __init__(self, track: Track, parent: object | None = None, *, force: bool = False) -> None:
         super().__init__(parent)  # type: ignore[arg-type]
         self._track = track
+        self._force = force
+
+    @property
+    def track_path(self) -> str:
+        return self._track.path
 
     def run(self) -> None:
         try:
-            path = fetch_lyrics(self._track)
+            path = fetch_lyrics(self._track, force=self._force)
         except Exception as exc:  # noqa: BLE001 - la red nunca debe romper nada
             logger.info("Búsqueda de letra online falló para %s: %s", self._track.path, exc)
             self.missing.emit(self._track.path)

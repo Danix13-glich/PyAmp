@@ -1577,17 +1577,29 @@ class MainWindow(QMainWindow):
             return
         self._start_online_lyrics(track)
 
-    def _start_online_lyrics(self, track: Track) -> None:
+    def _start_online_lyrics(self, track: Track, *, force: bool = False) -> None:
         self._lyrics_pending = None
-        worker = OnlineLyricsWorker(track, self)
+        worker = OnlineLyricsWorker(track, self, force=force)
         self._lyrics_search = worker
         worker.found.connect(self._on_online_lyrics_found)
         worker.missing.connect(self._on_online_lyrics_missing)
         worker.finished.connect(self._on_online_lyrics_finished)
         worker.finished.connect(worker.deleteLater)
         if self._lyrics_window is not None and self._lyrics_window.isVisible():
+            self._lyrics_window.set_searching(True)
             self._lyrics_window.set_status(tr("Buscando letra en internet…"))
         worker.start()
+
+    def _on_lyrics_search_requested(self) -> None:
+        track = self._player.current_track
+        if track is None or not track.path or "://" in track.path:
+            return
+        if self._lyrics_search is not None and self._lyrics_search.isRunning():
+            if self._lyrics_window is not None:
+                self._lyrics_window.set_searching(True)
+                self._lyrics_window.set_status(tr("Buscando letra en internet…"))
+            return
+        self._start_online_lyrics(track, force=True)
 
     def _on_online_lyrics_found(self, track_path: str, lrc_path: str) -> None:
         current = self._player.current_track
@@ -1603,10 +1615,13 @@ class MainWindow(QMainWindow):
         if current is None or current.path != track_path:
             return
         if self._lyrics_window is not None and self._lyrics_window.isVisible():
+            self._lyrics_window.set_searching(False)
             self._lyrics_window.set_status(tr("No se encontró letra en internet"))
 
     def _on_online_lyrics_finished(self) -> None:
         self._lyrics_search = None
+        if self._lyrics_window is not None and self._lyrics_window.isVisible():
+            self._lyrics_window.set_searching(False)
         pending = self._lyrics_pending
         self._lyrics_pending = None
         current = self._player.current_track
@@ -1619,8 +1634,19 @@ class MainWindow(QMainWindow):
             self._lyrics_window.destroyed.connect(self._on_lyrics_destroyed)
             # Doble clic en una línea → saltar ahí y seguir reproduciendo.
             self._lyrics_window.seek_requested.connect(self._on_lyrics_seek)
+            # Botón que aparece cuando la pista no tiene letra.
+            self._lyrics_window.search_requested.connect(self._on_lyrics_search_requested)
         window = self._lyrics_window
-        window.show_track(self._player.current_track)
+        track = self._player.current_track
+        window.show_track(track)
+        if (
+            track is not None
+            and self._lyrics_search is not None
+            and self._lyrics_search.isRunning()
+            and self._lyrics_search.track_path == track.path
+        ):
+            window.set_searching(True)
+            window.set_status(tr("Buscando letra en internet…"))
         window.show()
         window.raise_()
         window.activateWindow()

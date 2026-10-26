@@ -93,6 +93,28 @@ def test_fetch_lyrics_no_toca_un_lrc_existente(tmp_path: Path, monkeypatch) -> N
     assert online.fetch_lyrics(track) == sidecar
 
 
+def test_fetch_lyrics_force_rellena_un_lrc_vacio(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(online, "LYRICS_DIR", tmp_path)
+    sidecar = tmp_path / "music" / "song.lrc"
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text("\n", encoding="utf-8")
+    candidate = _candidate(synced="[00:01.00]Hola")
+    monkeypatch.setattr(
+        online, "_search_candidates", lambda title, artist, timeout_s=0: [candidate]
+    )
+    track = Track(
+        path=str(tmp_path / "music" / "song.mp3"),
+        title="Song",
+        artist="Artist",
+        duration_ms=200_000,
+    )
+
+    result = online.fetch_lyrics(track, force=True)
+
+    assert result == sidecar
+    assert "[00:01.00]Hola" in sidecar.read_text(encoding="utf-8")
+
+
 def test_search_reintenta_con_el_primer_artista(tmp_path: Path, monkeypatch) -> None:
     calls: list[str] = []
     candidate = _candidate(artist="Artist A")

@@ -541,11 +541,39 @@ def test_lyrics_window_without_lrc_is_harmless(qapp: QApplication, tmp_path: Pat
 
     assert window.entries == []
     assert window.showing_placeholder  # «Letra no disponible :(» centrado
+    assert window.search_offered  # botón para buscarla en internet
     window.sync_position(1000)  # sin entradas: no-op sin crash
     assert window.active_row == -1
     window.show_track(None)  # sin pista
     assert window.entries == []
     assert window.showing_placeholder
+    assert not window.search_offered
+
+
+def test_lyrics_window_search_button_emits_request(qapp: QApplication, tmp_path: Path) -> None:
+    audio = tmp_path / "tema-boton-letra-test.mp3"
+    audio.write_bytes(b"")
+    window = LyricsWindow()
+    window.show_track(Track(path=str(audio), title="Sin letra"))
+
+    received: list[bool] = []
+    window.search_requested.connect(lambda: received.append(True))
+    window._search_button.click()  # noqa: SLF001 - tests
+
+    assert received == [True]
+
+
+def test_lyrics_window_offers_search_for_empty_lrc(qapp: QApplication, tmp_path: Path) -> None:
+    audio = tmp_path / "tema-letra-vacia-test.mp3"
+    audio.write_bytes(b"")
+    (tmp_path / "tema-letra-vacia-test.lrc").write_text("  \n", encoding="utf-8")
+    window = LyricsWindow()
+
+    window.show_track(Track(path=str(audio), title="Letra vacía"))
+
+    assert window.entries == []
+    assert window.showing_placeholder
+    assert window.search_offered
 
 
 def test_lyrics_window_hides_placeholder_when_lrc_exists(
@@ -560,6 +588,7 @@ def test_lyrics_window_hides_placeholder_when_lrc_exists(
 
     assert window.entries == [(5000, "Hola")]
     assert not window.showing_placeholder  # hay letra: la lista se ve, sin aviso
+    assert not window.search_offered
 
 
 # ------------------------------------------------------- temas (0.1.6)
