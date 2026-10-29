@@ -134,12 +134,31 @@ def test_upsert_updates_in_place_and_keeps_stats(db: LibraryDatabase) -> None:
 def test_remove_missing_tracks(db: LibraryDatabase) -> None:
     db.upsert_track(Track(path="/m/a.mp3", title="A"))
     db.upsert_track(Track(path="/m/b.mp3", title="B"))
-
     removed = db.remove_missing_tracks({"/m/a.mp3"})
 
     assert removed == 1
     assert db.get_track_by_path("/m/a.mp3") is not None
     assert db.get_track_by_path("/m/b.mp3") is None
+
+
+def test_reset_clears_songs_favorites_playlists_and_history(db: LibraryDatabase) -> None:
+    track_id = db.upsert_track(Track(path="/m/a.mp3", title="A", artist="Artista"))
+    db.toggle_favorite("/m/a.mp3")
+    db.record_play_by_path("/m/a.mp3")
+    playlists = PlaylistRepository(db)
+    playlist_id = playlists.create("Mi lista")
+    assert playlists.set_tracks(playlist_id, [track_id]) is True
+
+    db.reset()
+
+    counts = {
+        table: db.connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        for table in ("tracks", "playlists", "playlist_tracks", "play_history")
+    }
+    assert all(count == 0 for count in counts.values())
+    assert db.favorite_tracks() == []
+    assert playlists.list_all() == []
+    assert db.stats()["tracks"] == 0
 
 
 def test_cleanup_orphans_after_removal(db: LibraryDatabase) -> None:

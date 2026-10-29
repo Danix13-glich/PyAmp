@@ -6,7 +6,8 @@
 - **Botón para buscar la letra** cuando la canción no tiene letra o el `.lrc` está vacío.
 - **Reanudación al abrir**: si cierras la app a mitad de una canción, al volver a abrirla continúa desde ese mismo punto (o queda lista para continuar si estaba en pausa).
 - **Barra de posición arrastrable**: se puede pulsar y arrastrar para saltar a cualquier punto de la canción.
-- **Restaurar valores de fábrica** desde **Ajustes → Avanzado**, con confirmación; no borra la biblioteca ni los archivos de música.
+- **Restaurar valores de fábrica** desde **Ajustes → Avanzado**: borra biblioteca, favoritos, listas, radios, temas personalizados y todos los ajustes (incluido el idioma), sin tocar tus archivos de música. Al terminar cierra la app y envía una notificación para abrirla de nuevo.
+- **Notificaciones**: se eliminó el ajuste de duración; se usa una duración fija del sistema.
 - El botón **Instalar** desaparece cuando PyAmp ya se está ejecutando desde su instalación.
 - **Velocidad de reproducción** para música y favoritos: botón a la derecha de Repetir que alterna **1x → 1.5x → 2x**. La radio suena siempre a velocidad normal.
 - **Radio**: botones **Editar**, **Eliminar** y **Nuevo** debajo de la lista; el botón Play retoma la última emisora escuchada.

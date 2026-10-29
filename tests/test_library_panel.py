@@ -10,8 +10,6 @@ from PySide6.QtWidgets import QApplication
 
 from app.core.player import Player
 from app.core.settings import (
-    MAX_TIMEOUT_MS,
-    MIN_TIMEOUT_MS,
     SHORTCUT_DEFAULTS,
     Settings,
     get_settings,
@@ -366,23 +364,20 @@ def test_settings_dialog_reads_settings_and_emits_apply(qapp: QApplication) -> N
         library_stats={"tracks": 3, "artists": 1, "albums": 1},
     )
 
-    assert dialog._spin_timeout.minimum() == MIN_TIMEOUT_MS // 1000  # noqa: SLF001 - tests
-    assert dialog._spin_timeout.maximum() == MAX_TIMEOUT_MS // 1000  # noqa: SLF001 - tests
     assert dialog._check_enabled.isChecked() == original_enabled  # noqa: SLF001 - tests
 
-    applied: list[tuple[bool, int]] = []
+    applied: list[bool] = []
     tested: list[int] = []
-    dialog.apply_settings.connect(lambda enabled, ms: applied.append((enabled, ms)))
+    dialog.apply_settings.connect(applied.append)
     dialog.test_notification.connect(lambda: tested.append(1))
 
     dialog._button_test.click()  # noqa: SLF001 - tests
     assert tested == [1]
 
     dialog._check_enabled.setChecked(not original_enabled)  # noqa: SLF001 - tests
-    dialog._spin_timeout.setValue(12)  # noqa: SLF001 - tests
     dialog._on_accepted()  # noqa: SLF001 - tests
 
-    assert applied == [(not original_enabled, 12000)]
+    assert applied == [not original_enabled]
     # El diálogo NO persiste por sí mismo: eso lo hace la ventana.
     assert settings.notifications_enabled == original_enabled
 
@@ -676,7 +671,7 @@ def test_settings_advanced_tab_tiene_restaurar_fabrica(
     assert tabs is not None
     advanced = tabs.widget(tabs.count() - 1)
     texts = [label.text() for label in advanced.findChildren(QLabel)]
-    assert any("Restaura todos los ajustes" in text for text in texts)
+    assert any("Borra la biblioteca de canciones" in text for text in texts)
     buttons = [button.text() for button in advanced.findChildren(QPushButton)]
     assert "Restaurar valores de fábrica" in buttons
 
@@ -726,7 +721,7 @@ def test_settings_oculta_instalar_si_ya_esta_instalada(
     assert dialog._button_install.isHidden()  # noqa: SLF001 - tests
 
 
-def test_settings_restaurar_fabrica_emite_y_limpia(
+def test_settings_restaurar_fabrica_emite_sin_borrar_por_si_solo(
     qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from PySide6.QtWidgets import QMessageBox
@@ -748,8 +743,9 @@ def test_settings_restaurar_fabrica_emite_y_limpia(
     dialog._on_factory_reset()  # noqa: SLF001 - tests
 
     assert received == [True]
-    assert settings.volume == 100
-    assert settings.last_playback is None
+    # La ventana principal es quien borra biblioteca, temas y ajustes.
+    assert settings.volume == 55
+    assert settings.last_playback is not None
 
 
 def test_installer_source_mode_creates_desktop_entry(
@@ -843,6 +839,25 @@ def test_settings_delete_removes_custom_theme(
     assert is_custom_theme(theme.id) is False
     assert dialog._combo_theme.findData(theme.id) == -1  # noqa: SLF001
     assert dialog._btn_delete_theme.isEnabled() is False  # noqa: SLF001
+
+
+def test_delete_all_custom_themes_borra_solo_los_del_usuario(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.themes import create_custom_theme, delete_all_custom_themes, is_custom_theme
+    from app.themes import manager as theme_manager
+
+    monkeypatch.setattr(theme_manager, "USER_THEMES_DIR", tmp_path / "themes")
+    monkeypatch.setattr(theme_manager, "_cache", None)
+    first = create_custom_theme("#101010", "#eeeeee", "#ff8800", name="Uno")
+    second = create_custom_theme("#202020", "#dddddd", "#00aa88", name="Dos")
+
+    removed = delete_all_custom_themes()
+
+    assert removed == 2
+    assert is_custom_theme(first.id) is False
+    assert is_custom_theme(second.id) is False
+    assert list((tmp_path / "themes").glob("*.json")) == []
 
 
 def test_settings_dialog_emits_appearance(qapp: QApplication) -> None:

@@ -10,7 +10,7 @@ from app.i18n import tr
 
 logger = logging.getLogger(__name__)
 
-# Duración por defecto en segundos (configurable en Ajustes -> Notificaciones).
+# Duración por defecto en segundos de las notificaciones del sistema.
 DEFAULT_TIMEOUT_MS = 5000
 
 UNKNOWN_ARTIST_TEXT = "Artista desconocido"
@@ -123,24 +123,23 @@ class Notifier:
             # Regla de oro: la notificación jamás interrumpe la reproducción.
             logger.error("Error enviando notificación (backend=%s): %s", self._backend_name, exc)
 
-    def _send(self, app_name: str, title: str, body: str, image_path: str | None = None) -> None:
+    def _send(self, app_name: str, title: str, body: str, image_path: str | None = None) -> Any:
         if self._backend is None:
             logger.debug("Sin backend de notificaciones; se omite: %r / %r", title, body)
-            return
+            return None
 
         if self._backend == "plyer":
             from plyer import notification
 
-            notification.notify(
+            return notification.notify(
                 title=f"{app_name} — {title}",
                 message=body,
                 app_name=app_name,
                 timeout=self.timeout_ms // 1000,
             )
-            return
 
         # Backends propios (Linux/Windows/macOS) implementan notify().
-        self._backend.notify(
+        return self._backend.notify(
             app_name=app_name,
             title=title,
             body=body,
@@ -155,6 +154,24 @@ class Notifier:
             self._send("PyAmp", title, body, None)
         except Exception as exc:  # noqa: BLE001
             logger.error("Error en notificación genérica: %s", exc)
+
+    def notify_reset(self) -> None:
+        # El aviso de reinicio es obligatorio aunque el usuario tuviera las
+        # notificaciones desactivadas antes de restablecer los ajustes.
+        title = tr("PyAmp se ha restablecido")
+        body = tr("Abre de nuevo PyAmp para continuar.")
+        try:
+            result = self._send("PyAmp", title, body, None)
+            waiter = getattr(result, "result", None)
+            if callable(waiter):
+                # Espera breve a que D-Bus acepte la notificación antes de
+                # cerrar la app; close_all no la elimina durante el reset.
+                try:
+                    waiter(timeout=2)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("No se pudo confirmar la notificación de reinicio: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Error en notificación de restablecimiento: %s", exc)
 
     def notify_history(self, on_click: Callable[[], None] | None = None) -> None:
         # Aviso mensual del historial: si el backend admite acción, al pulsar

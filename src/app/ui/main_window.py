@@ -56,7 +56,14 @@ from app.library.scanner import ScannerThread
 from app.lyrics.online import OnlineLyricsWorker
 from app.notifications.notifier import Notifier
 from app.radio import RadioLibrary, RadioSearchWorker
-from app.themes import DEFAULT_THEME_ID, Theme, get_theme, load_themes, reload_themes
+from app.themes import (
+    DEFAULT_THEME_ID,
+    Theme,
+    delete_all_custom_themes,
+    get_theme,
+    load_themes,
+    reload_themes,
+)
 from app.ui.cover_widget import CoverLabel
 from app.ui.history_window import HistoryWindow
 from app.ui.lyrics_editor import LyricsEditorDialog
@@ -87,6 +94,8 @@ ERROR_TIMEOUT_MS = 10000
 RESUME_MIN_MS = 3000
 RESUME_END_MARGIN_MS = 3000
 VOLUME_SLIDER_WIDTH = 140
+#: Margen para que el servidor de notificaciones muestre el aviso de reinicio.
+FACTORY_RESET_CLOSE_DELAY_MS = 500
 
 #: Separación (px) entre la ventana principal y la de letra.
 LYRICS_GAP_PX = 8
@@ -172,16 +181,12 @@ class MainWindow(QMainWindow):
         self._player = Player(settings=self._settings)
 
         # ÚNICO punto del programa que lanza notificaciones de escritorio.
-        self._notifier = Notifier(
-            timeout_ms=self._settings.notifications_timeout_ms,
-            enabled=self._settings.notifications_enabled,
-        )
+        self._notifier = Notifier(enabled=self._settings.notifications_enabled)
         self._player.track_changed.connect(self._notifier.notify_track)
         logger.info(
-            "Notifier iniciado (backend=%s, enabled=%s, timeout=%dms)",
+            "Notifier iniciado (backend=%s, enabled=%s)",
             self._notifier.backend_name,
             self._notifier.enabled,
-            self._notifier.timeout_ms,
         )
 
         self._folder_loader: _FolderLoader | None = None
@@ -1323,8 +1328,43 @@ class MainWindow(QMainWindow):
     def _on_factory_reset(self) -> None:
         # Evita que closeEvent vuelva a escribir geometría, lista o posición.
         self._factory_reset_pending = True
-        logger.info("Ajustes restaurados a valores de fábrica; reiniciando")
-        QTimer.singleShot(0, self._restart_app)
+        try:
+            self._on_clear_playlist()
+            self._library.reset()
+            self._delete_saved_playlists()
+            delete_all_custom_themes()
+            self._settings.reset()
+            self._songs_table.refresh()
+            self._favorites_table.refresh()
+            self._radio_panel.refresh()
+            self._notifier.enabled = True
+            self._notifier.notify_reset()
+            logger.info("Ajustes y datos restablecidos a valores de fábrica")
+            self.statusBar().showMessage(tr("PyAmp restablecido. Abre de nuevo la app."))
+        except Exception as exc:  # noqa: BLE001 - no cerrar la app a medias
+            self._factory_reset_pending = False
+            logger.exception("No se pudo restaurar PyAmp a valores de fábrica")
+            QMessageBox.critical(
+                self,
+                tr("Restaurar valores de fábrica"),
+                tr("No se pudo completar el restablecimiento: {error}").format(error=exc),
+            )
+            return
+        QTimer.singleShot(FACTORY_RESET_CLOSE_DELAY_MS, self._quit_after_factory_reset)
+
+    def _quit_after_factory_reset(self) -> None:
+        self.close()
+        QApplication.quit()
+
+    def _delete_saved_playlists(self) -> None:
+        if not PLAYLISTS_DIR.is_dir():
+            return
+        for pattern in ("*.m3u", "*.m3u8"):
+            for path in PLAYLISTS_DIR.glob(pattern):
+                try:
+                    path.unlink()
+                except OSError as exc:
+                    logger.warning("No se pudo borrar la lista %s: %s", path, exc)
 
     def _on_apply_language(self, code: str) -> None:
         language = str(code).strip().lower()
@@ -1381,23 +1421,14 @@ class MainWindow(QMainWindow):
         self._apply_shortcuts()
         self.statusBar().showMessage(tr("Atajos de teclado actualizados"), ERROR_TIMEOUT_MS)
 
-    def _apply_notification_settings(self, enabled: bool, timeout_ms: int) -> None:
+    def _apply_notification_settings(self, enabled: bool) -> None:
         self._settings.notifications_enabled = enabled
-        self._settings.notifications_timeout_ms = timeout_ms
         self._notifier.enabled = enabled
-        self._notifier.timeout_ms = timeout_ms
         self.statusBar().showMessage(
-            tr("Ajustes aplicados: notificaciones {state}, {seconds} s").format(
-                state=tr("activadas") if enabled else tr("desactivadas"),
-                seconds=timeout_ms // 1000,
-            ),
+            tr("Notificaciones activadas") if enabled else tr("Notificaciones desactivadas"),
             ERROR_TIMEOUT_MS,
         )
-        logger.info(
-            "Ajustes de notificación aplicados (enabled=%s, timeout=%dms)",
-            enabled,
-            timeout_ms,
-        )
+        logger.info("Ajustes de notificación aplicados (enabled=%s)", enabled)
 
     def _send_test_notification(self) -> None:
         try:
@@ -1862,7 +1893,9 @@ class MainWindow(QMainWindow):
         if self._mpris is not None:
             self._mpris.shutdown()
         self._spectrum.shutdown()
-        self._notifier.close_all()
+        if not self._factory_reset_pending:
+            # En un restablecimiento la notificación debe sobrevivir al cierre.
+            self._notifier.close_all()
         self._player.shutdown()
         self._library.close()
         logger.info("Ventana cerrada; estado guardado")

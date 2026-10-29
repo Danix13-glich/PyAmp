@@ -18,7 +18,6 @@ KEY_PLAYLIST_PATHS = "playlist/paths"
 KEY_PLAYLIST_INDEX = "playlist/current_index"
 KEY_LAST_PLAYBACK = "playback/last"
 KEY_NOTIFICATIONS_ENABLED = "notifications/enabled"
-KEY_NOTIFICATIONS_TIMEOUT_MS = "notifications/timeout_ms"
 KEY_WINDOW_GEOMETRY = "window/geometry"
 KEY_WINDOW_WIDTH = "window/default_width"
 KEY_WINDOW_HEIGHT = "window/default_height"
@@ -38,9 +37,6 @@ KEY_RADIO_LAST = "radio/last"
 KEY_HISTORY_NOTIFIED = "history/notified_month"
 
 DEFAULT_VOLUME = 100
-DEFAULT_TIMEOUT_MS = 5000
-MIN_TIMEOUT_MS = 1000
-MAX_TIMEOUT_MS = 60000
 
 #: Tamaño por defecto de la ventana principal (Ajustes → Apariencia).
 DEFAULT_WINDOW_WIDTH = 630
@@ -166,20 +162,6 @@ class Settings:
     @notifications_enabled.setter
     def notifications_enabled(self, value: bool) -> None:
         self.set_value(KEY_NOTIFICATIONS_ENABLED, bool(value))
-
-    @property
-    def notifications_timeout_ms(self) -> int:
-        try:
-            value = int(self._raw(KEY_NOTIFICATIONS_TIMEOUT_MS, DEFAULT_TIMEOUT_MS))
-        except (TypeError, ValueError):
-            value = DEFAULT_TIMEOUT_MS
-        return max(MIN_TIMEOUT_MS, min(MAX_TIMEOUT_MS, value))
-
-    @notifications_timeout_ms.setter
-    def notifications_timeout_ms(self, value: int) -> None:
-        self.set_value(
-            KEY_NOTIFICATIONS_TIMEOUT_MS, max(MIN_TIMEOUT_MS, min(MAX_TIMEOUT_MS, int(value)))
-        )
 
     # ------------------------------------------------------------- playlist
     @property

@@ -375,6 +375,18 @@ def remove_track(conn: sqlite3.Connection, path: str) -> bool:
     return cursor.rowcount > 0
 
 
+def reset_library(conn: sqlite3.Connection) -> None:
+    # Orden seguro con claves foráneas: primero las tablas dependientes.
+    with conn:
+        conn.execute("DELETE FROM playlist_tracks")
+        conn.execute("DELETE FROM playlists")
+        conn.execute("DELETE FROM play_history")
+        conn.execute("DELETE FROM tracks")
+        conn.execute("DELETE FROM albums")
+        conn.execute("DELETE FROM artists")
+    logger.info("Biblioteca restablecida: canciones, favoritos, listas e historial eliminados")
+
+
 def rename_track_path(conn: sqlite3.Connection, old_path: str, new_path: str) -> bool:
     cursor = conn.execute("UPDATE tracks SET path = ? WHERE path = ?", (new_path, old_path))
     conn.commit()
@@ -465,6 +477,9 @@ class LibraryDatabase:
 
     def remove_track(self, path: str) -> bool:
         return remove_track(self._conn, path)
+
+    def reset(self) -> None:
+        reset_library(self._conn)
 
     def rename_track_path(self, old_path: str, new_path: str) -> bool:
         return rename_track_path(self._conn, old_path, new_path)

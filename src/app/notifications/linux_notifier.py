@@ -63,12 +63,13 @@ class LinuxNotifier:
         body: str,
         timeout_ms: int = 5000,
         image_path: str | None = None,
-    ) -> None:
+    ) -> concurrent.futures.Future[None]:
         loop = self._ensure_loop()
         future = asyncio.run_coroutine_threadsafe(
             self._notify_async(app_name, title, body, timeout_ms, image_path), loop
         )
         future.add_done_callback(self._log_result)
+        return future
 
     def notify_action(
         self,

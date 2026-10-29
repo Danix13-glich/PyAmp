@@ -322,6 +322,23 @@ def delete_custom_theme(theme_id: str) -> bool:
     return True
 
 
+def delete_all_custom_themes() -> int:
+    global _cache
+    if not USER_THEMES_DIR.is_dir():
+        _cache = None
+        return 0
+    removed = 0
+    for path in sorted(USER_THEMES_DIR.glob("*.json")):
+        try:
+            path.unlink()
+            removed += 1
+        except OSError as exc:
+            logger.warning("No se pudo borrar el tema %s: %s", path, exc)
+    _cache = None
+    logger.info("Temas personalizados eliminados: %d", removed)
+    return removed
+
+
 def rename_custom_theme(theme_id: str, name: str) -> Theme | None:
     path = find_custom_theme_path(theme_id)
     if path is None:

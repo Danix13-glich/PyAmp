@@ -87,3 +87,33 @@ def test_image_data_uses_list_para_el_struct_dbus(tmp_path) -> None:
     assert isinstance(data, list)
     # No debe lanzar: dbus-next exige list para el STRUCT (iiibiiay).
     Variant("(iiibiiay)", data)
+
+
+def test_notify_reset_se_envia_aunque_estuviera_desactivado() -> None:
+    from app.notifications.notifier import Notifier
+
+    class FakeBackend:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, str]] = []
+
+        def notify(
+            self,
+            app_name: str,
+            title: str,
+            body: str,
+            timeout_ms: int,
+            image_path: str | None,
+        ) -> None:
+            self.calls.append((app_name, title, body))
+
+    notifier = Notifier.__new__(Notifier)
+    notifier.timeout_ms = 5000
+    notifier.enabled = False
+    notifier._backend_name = "fake"  # noqa: SLF001 - test
+    notifier._backend = FakeBackend()  # noqa: SLF001 - test
+
+    notifier.notify_reset()
+
+    assert notifier._backend.calls == [  # noqa: SLF001 - test
+        ("PyAmp", "PyAmp se ha restablecido", "Abre de nuevo PyAmp para continuar.")
+    ]

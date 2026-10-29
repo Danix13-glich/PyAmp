@@ -97,15 +97,18 @@ _EN: dict[str, str] = {
     "Playlist guardada en {path}": "Playlist saved to {path}",
     "Playlist vaciada": "Playlist cleared",
     "Atajos de teclado actualizados": "Keyboard shortcuts updated",
-    "Ajustes aplicados: notificaciones {state}, {seconds} s": (
-        "Settings applied: notifications {state}, {seconds} s"
-    ),
-    "activadas": "enabled",
-    "desactivadas": "disabled",
+    "Notificaciones activadas": "Notifications enabled",
+    "Notificaciones desactivadas": "Notifications disabled",
     "Notificación de prueba": "Test notification",
     "PyAmp funciona correctamente": "PyAmp is working correctly",
     "La notificación falló: {error}": "The notification failed: {error}",
     "Notificación de prueba enviada": "Test notification sent",
+    "PyAmp se ha restablecido": "PyAmp has been reset",
+    "Abre de nuevo PyAmp para continuar.": "Open PyAmp again to continue.",
+    "PyAmp restablecido. Abre de nuevo la app.": "PyAmp reset. Open the app again.",
+    "No se pudo completar el restablecimiento: {error}": (
+        "The reset could not be completed: {error}"
+    ),
     "Favorito no guardado: {error}": "Favorite not saved: {error}",
     "★ Añadida a favoritos": "★ Added to favorites",
     "★ Quitada de favoritos": "★ Removed from favorites",
@@ -178,8 +181,6 @@ _EN: dict[str, str] = {
     "Atajos": "Shortcuts",
     "Información": "About",
     "Activar notificaciones de escritorio": "Enable desktop notifications",
-    "Duración en pantalla de cada notificación": "On-screen duration of each notification",
-    "Duración:": "Duration:",
     "Probar notificación": "Test notification",
     "Envía una notificación de prueba ahora": "Send a test notification now",
     "Tema:": "Theme:",
@@ -337,14 +338,16 @@ _EN: dict[str, str] = {
     "Avanzado": "Advanced",
     "Proximamente... :)": "Coming soon... :)",
     "Restaurar valores de fábrica": "Restore factory settings",
-    "Restaura todos los ajustes de PyAmp a sus valores originales.\nLa biblioteca y tus archivos de música no se tocan.": (
-        "Restores all PyAmp settings to their original values.\n"
-        "Your library and music files are not touched."
+    "Borra la biblioteca de canciones, los favoritos, las listas, las emisoras de radio, los temas personalizados y todos los ajustes, incluido el idioma.\nTus archivos de música no se borran.": (
+        "Deletes the song library, favorites, playlists, radio stations, custom themes "
+        "and all settings, including the language.\nYour music files are not deleted."
     ),
-    "¿Restaurar todos los ajustes a sus valores de fábrica?\nSe perderán tus preferencias, el tema activo, las emisoras y los atajos personalizados. La biblioteca y tus archivos de música no se tocan.": (
-        "Restore all settings to factory defaults?\n"
-        "Your preferences, active theme, radio stations and custom shortcuts will be lost. "
-        "Your library and music files are not touched."
+    "¿Restaurar PyAmp a sus valores de fábrica?\n\nSe eliminarán la biblioteca de canciones, los favoritos, las listas, las emisoras de radio, los temas personalizados y todos los ajustes, incluido el idioma.\nTus archivos de música no se borran.\n\nLa app se cerrará y recibirás una notificación para abrirla de nuevo.": (
+        "Restore PyAmp to factory settings?\n\n"
+        "The song library, favorites, playlists, radio stations, custom themes and all "
+        "settings, including the language, will be deleted.\n"
+        "Your music files are not deleted.\n\n"
+        "The app will close and you will receive a notification to open it again."
     ),
     "Eliminar tema": "Delete theme",
     "Nombre del tema actual": "Current theme name",
@@ -469,15 +472,18 @@ _IT: dict[str, str] = {
     "Playlist guardada en {path}": "Playlist salvata in {path}",
     "Playlist vaciada": "Playlist svuotata",
     "Atajos de teclado actualizados": "Scorciatoie da tastiera aggiornate",
-    "Ajustes aplicados: notificaciones {state}, {seconds} s": (
-        "Impostazioni applicate: notifiche {state}, {seconds} s"
-    ),
-    "activadas": "attive",
-    "desactivadas": "disattivate",
+    "Notificaciones activadas": "Notifiche attivate",
+    "Notificaciones desactivadas": "Notifiche disattivate",
     "Notificación de prueba": "Notifica di prova",
     "PyAmp funciona correctamente": "PyAmp funziona correttamente",
     "La notificación falló: {error}": "La notifica non è riuscita: {error}",
     "Notificación de prueba enviada": "Notifica di prova inviata",
+    "PyAmp se ha restablecido": "PyAmp è stato ripristinato",
+    "Abre de nuevo PyAmp para continuar.": "Apri di nuovo PyAmp per continuare.",
+    "PyAmp restablecido. Abre de nuevo la app.": "PyAmp ripristinato. Apri di nuovo l'app.",
+    "No se pudo completar el restablecimiento: {error}": (
+        "Impossibile completare il ripristino: {error}"
+    ),
     "Favorito no guardado: {error}": "Preferito non salvato: {error}",
     "★ Añadida a favoritos": "★ Aggiunto ai preferiti",
     "★ Quitada de favoritos": "★ Rimosso dai preferiti",
@@ -552,8 +558,6 @@ _IT: dict[str, str] = {
     "Atajos": "Scorciatoie",
     "Información": "Informazioni",
     "Activar notificaciones de escritorio": "Attiva le notifiche desktop",
-    "Duración en pantalla de cada notificación": "Durata sullo schermo di ogni notifica",
-    "Duración:": "Durata:",
     "Probar notificación": "Prova notifica",
     "Envía una notificación de prueba ahora": "Invia ora una notifica di prova",
     "Tema:": "Tema:",
@@ -713,14 +717,17 @@ _IT: dict[str, str] = {
     "Avanzado": "Avanzate",
     "Proximamente... :)": "Prossimamente... :)",
     "Restaurar valores de fábrica": "Ripristina valori di fabbrica",
-    "Restaura todos los ajustes de PyAmp a sus valores originales.\nLa biblioteca y tus archivos de música no se tocan.": (
-        "Ripristina tutte le impostazioni di PyAmp ai valori originali.\n"
-        "La libreria e i file musicali non vengono toccati."
+    "Borra la biblioteca de canciones, los favoritos, las listas, las emisoras de radio, los temas personalizados y todos los ajustes, incluido el idioma.\nTus archivos de música no se borran.": (
+        "Elimina la libreria dei brani, i preferiti, le playlist, le emittenti radio, "
+        "i temi personalizzati e tutte le impostazioni, inclusa la lingua.\n"
+        "I file musicali non vengono eliminati."
     ),
-    "¿Restaurar todos los ajustes a sus valores de fábrica?\nSe perderán tus preferencias, el tema activo, las emisoras y los atajos personalizados. La biblioteca y tus archivos de música no se tocan.": (
-        "Ripristinare tutte le impostazioni ai valori di fabbrica?\n"
-        "Perderai preferenze, tema attivo, emittenti e scorciatoie personalizzate. "
-        "La libreria e i file musicali non vengono toccati."
+    "¿Restaurar PyAmp a sus valores de fábrica?\n\nSe eliminarán la biblioteca de canciones, los favoritos, las listas, las emisoras de radio, los temas personalizados y todos los ajustes, incluido el idioma.\nTus archivos de música no se borran.\n\nLa app se cerrará y recibirás una notificación para abrirla de nuevo.": (
+        "Ripristinare PyAmp ai valori di fabbrica?\n\n"
+        "Verranno eliminati la libreria dei brani, i preferiti, le playlist, le emittenti "
+        "radio, i temi personalizzati e tutte le impostazioni, inclusa la lingua.\n"
+        "I file musicali non vengono eliminati.\n\n"
+        "L'app si chiuderà e riceverai una notifica per aprirla di nuovo."
     ),
     "Eliminar tema": "Elimina tema",
     "Nombre del tema actual": "Nome del tema attuale",
@@ -852,15 +859,16 @@ _AR: dict[str, str] = {
     "Playlist guardada en {path}": "تم حفظ قائمة التشغيل في {path}",
     "Playlist vaciada": "تم تفريغ قائمة التشغيل",
     "Atajos de teclado actualizados": "تم تحديث اختصارات لوحة المفاتيح",
-    "Ajustes aplicados: notificaciones {state}, {seconds} s": (
-        "تم تطبيق الإعدادات: الإشعارات {state}، {seconds} ث"
-    ),
-    "activadas": "مفعّلة",
-    "desactivadas": "معطّلة",
+    "Notificaciones activadas": "تم تفعيل الإشعارات",
+    "Notificaciones desactivadas": "تم تعطيل الإشعارات",
     "Notificación de prueba": "إشعار تجريبي",
     "PyAmp funciona correctamente": "PyAmp يعمل بشكل صحيح",
     "La notificación falló: {error}": "فشل الإشعار: {error}",
     "Notificación de prueba enviada": "تم إرسال الإشعار التجريبي",
+    "PyAmp se ha restablecido": "تمت إعادة ضبط PyAmp",
+    "Abre de nuevo PyAmp para continuar.": "افتح PyAmp مرة أخرى للمتابعة.",
+    "PyAmp restablecido. Abre de nuevo la app.": "تمت إعادة ضبط PyAmp. افتح التطبيق مرة أخرى.",
+    "No se pudo completar el restablecimiento: {error}": "تعذر إكمال إعادة الضبط: {error}",
     "Favorito no guardado: {error}": "لم يتم حفظ المفضلة: {error}",
     "★ Añadida a favoritos": "★ أُضيف إلى المفضلة",
     "★ Quitada de favoritos": "★ أُزيل من المفضلة",
@@ -931,8 +939,6 @@ _AR: dict[str, str] = {
     "Atajos": "الاختصارات",
     "Información": "معلومات",
     "Activar notificaciones de escritorio": "تفعيل إشعارات سطح المكتب",
-    "Duración en pantalla de cada notificación": "مدة عرض كل إشعار على الشاشة",
-    "Duración:": "المدة:",
     "Probar notificación": "اختبار الإشعار",
     "Envía una notificación de prueba ahora": "أرسل إشعاراً تجريبياً الآن",
     "Tema:": "السمة:",
@@ -1087,13 +1093,16 @@ _AR: dict[str, str] = {
     "Avanzado": "متقدم",
     "Proximamente... :)": "قريباً... :)",
     "Restaurar valores de fábrica": "استعادة إعدادات المصنع",
-    "Restaura todos los ajustes de PyAmp a sus valores originales.\nLa biblioteca y tus archivos de música no se tocan.": (
-        "يعيد جميع إعدادات PyAmp إلى قيمها الأصلية.\n" "لن تتأثر المكتبة وملفات الموسيقى."
+    "Borra la biblioteca de canciones, los favoritos, las listas, las emisoras de radio, los temas personalizados y todos los ajustes, incluido el idioma.\nTus archivos de música no se borran.": (
+        "يحذف مكتبة الأغاني والمفضلات وقوائم التشغيل ومحطات الراديو والسمات المخصصة "
+        "وجميع الإعدادات، بما فيها اللغة.\nلن تُحذف ملفات الموسيقى."
     ),
-    "¿Restaurar todos los ajustes a sus valores de fábrica?\nSe perderán tus preferencias, el tema activo, las emisoras y los atajos personalizados. La biblioteca y tus archivos de música no se tocan.": (
-        "هل تريد استعادة جميع الإعدادات إلى إعدادات المصنع؟\n"
-        "ستفقد تفضيلاتك والسمة النشطة ومحطات الراديو والاختصارات المخصصة. "
-        "لن تتأثر المكتبة وملفات الموسيقى."
+    "¿Restaurar PyAmp a sus valores de fábrica?\n\nSe eliminarán la biblioteca de canciones, los favoritos, las listas, las emisoras de radio, los temas personalizados y todos los ajustes, incluido el idioma.\nTus archivos de música no se borran.\n\nLa app se cerrará y recibirás una notificación para abrirla de nuevo.": (
+        "هل تريد إعادة ضبط PyAmp إلى إعدادات المصنع؟\n\n"
+        "سيتم حذف مكتبة الأغاني والمفضلات وقوائم التشغيل ومحطات الراديو والسمات "
+        "المخصصة وجميع الإعدادات، بما فيها اللغة.\n"
+        "لن تُحذف ملفات الموسيقى.\n\n"
+        "سيُغلق التطبيق وستتلقى إشعاراً لفتحه مرة أخرى."
     ),
     "Eliminar tema": "حذف السمة",
     "Nombre del tema actual": "اسم السمة الحالية",

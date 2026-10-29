@@ -28,10 +28,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.settings import (
-    MAX_TIMEOUT_MS,
     MAX_WINDOW_HEIGHT,
     MAX_WINDOW_WIDTH,
-    MIN_TIMEOUT_MS,
     MIN_WINDOW_HEIGHT,
     MIN_WINDOW_WIDTH,
     SHORTCUT_DEFAULTS,
@@ -86,7 +84,7 @@ def _distribution_kind() -> str:
 class SettingsDialog(QDialog):
 
     apply_language = Signal(str)
-    apply_settings = Signal(bool, int)
+    apply_settings = Signal(bool)
     apply_appearance = Signal(str, bool, bool)  # tema, espectro, carátula
     apply_window_size = Signal(int, int)
     apply_show_hidden = Signal(bool)
@@ -103,7 +101,6 @@ class SettingsDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
-        self._settings = settings
         self.setWindowTitle(tr("Ajustes de PyAmp"))
         self.setModal(True)
         self.setMinimumSize(*DIALOG_MIN_SIZE)
@@ -156,13 +153,6 @@ class SettingsDialog(QDialog):
         self._check_enabled = QCheckBox(tr("Activar notificaciones de escritorio"))
         self._check_enabled.setChecked(settings.notifications_enabled)
         notif_form.addRow(self._check_enabled)
-
-        self._spin_timeout = QSpinBox()
-        self._spin_timeout.setRange(MIN_TIMEOUT_MS // 1000, MAX_TIMEOUT_MS // 1000)
-        self._spin_timeout.setSuffix(" s")
-        self._spin_timeout.setValue(max(1, settings.notifications_timeout_ms // 1000))
-        self._spin_timeout.setToolTip(tr("Duración en pantalla de cada notificación"))
-        notif_form.addRow(tr("Duración:"), self._spin_timeout)
 
         self._button_test = QPushButton(tr("Probar notificación"))
         self._button_test.setToolTip(tr("Envía una notificación de prueba ahora"))
@@ -375,8 +365,10 @@ class SettingsDialog(QDialog):
         reset_layout = QVBoxLayout(reset_group)
         hint = QLabel(
             tr(
-                "Restaura todos los ajustes de PyAmp a sus valores originales.\n"
-                "La biblioteca y tus archivos de música no se tocan."
+                "Borra la biblioteca de canciones, los favoritos, las listas, las "
+                "emisoras de radio, los temas personalizados y todos los ajustes, "
+                "incluido el idioma.\n"
+                "Tus archivos de música no se borran."
             )
         )
         hint.setWordWrap(True)
@@ -393,16 +385,18 @@ class SettingsDialog(QDialog):
             self,
             tr("Restaurar valores de fábrica"),
             tr(
-                "¿Restaurar todos los ajustes a sus valores de fábrica?\n"
-                "Se perderán tus preferencias, el tema activo, las emisoras y los "
-                "atajos personalizados. La biblioteca y tus archivos de música no se tocan."
+                "¿Restaurar PyAmp a sus valores de fábrica?\n\n"
+                "Se eliminarán la biblioteca de canciones, los favoritos, las listas, "
+                "las emisoras de radio, los temas personalizados y todos los ajustes, "
+                "incluido el idioma.\n"
+                "Tus archivos de música no se borran.\n\n"
+                "La app se cerrará y recibirás una notificación para abrirla de nuevo."
             ),
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
-        self._settings.reset()
         self.accept()
         self.factory_reset.emit()
 
@@ -477,7 +471,7 @@ class SettingsDialog(QDialog):
     # --------------------------------------------------------------- señales
     def _on_accepted(self) -> None:
         self.apply_language.emit(str(self._combo_language.currentData() or "es"))
-        self.apply_settings.emit(self._check_enabled.isChecked(), self._spin_timeout.value() * 1000)
+        self.apply_settings.emit(self._check_enabled.isChecked())
         selected = str(self._combo_theme.currentData() or DEFAULT_THEME_ID)
         if selected != CREATE_THEME_SENTINEL and is_custom_theme(selected):
             new_name = self._edit_current_name.text().strip()
