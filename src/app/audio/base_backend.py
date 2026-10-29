@@ -49,6 +49,10 @@ class AudioBackend(ABC):
     def seek(self, position_ms: int) -> None:
         pass
 
+    def set_rate(self, rate: float) -> None:
+        # Opcional: los backends que soportan velocidad lo sobrescriben.
+        self._playback_rate = float(rate)
+
     @abstractmethod
     def set_volume(self, volume: int) -> None:
         pass

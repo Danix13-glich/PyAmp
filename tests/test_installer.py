@@ -135,6 +135,30 @@ def test_remove_installer_handles_missing_path(tmp_path: Path) -> None:
     assert installer.remove_installer(str(tmp_path / "no-existe.AppImage")) is False
 
 
+def test_is_installed_application_detecta_binario_instalado(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(installer.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(installer, "is_frozen", lambda: True)
+    monkeypatch.setattr(installer, "_home", lambda: tmp_path)
+
+    installed = tmp_path / ".local" / "bin" / "pyamp"
+    monkeypatch.setattr(installer, "distributable_path", lambda: installed)
+    assert installer.is_installed_application() is True
+
+    downloaded = tmp_path / "Descargas" / "pyamp_0.2.2.AppImage"
+    monkeypatch.setattr(installer, "distributable_path", lambda: downloaded)
+    assert installer.is_installed_application() is False
+
+
+def test_is_installed_application_false_desde_codigo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(installer, "is_frozen", lambda: False)
+    monkeypatch.setattr(installer, "distributable_path", lambda: tmp_path / "pyamp")
+    assert installer.is_installed_application() is False
+
+
 def test_install_dialog_holds_ninety_percent(qapp: object, qtbot: object) -> None:
     from app.ui.install_dialog import InstallDialog
 

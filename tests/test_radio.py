@@ -162,6 +162,7 @@ class FakeBackend:
         self.on_finished = None
         self.on_error = None
         self.loaded: list[str] = []
+        self.rates: list[float] = []
 
     def load(self, path: str) -> None:
         self.loaded.append(path)
@@ -171,6 +172,9 @@ class FakeBackend:
     def resume(self) -> None: ...
     def stop(self) -> None: ...
     def seek(self, position_ms: int) -> None: ...
+    def set_rate(self, rate: float) -> None:
+        self.rates.append(rate)
+
     def set_volume(self, volume: int) -> None: ...
     def get_volume(self) -> int:
         return 100

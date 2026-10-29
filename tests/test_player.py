@@ -109,6 +109,7 @@ class FakeBackend:
         self.on_error = None
         self.loaded: list[str] = []
         self.seeks: list[int] = []
+        self.rates: list[float] = []
         self.position = 0
         self._muted = False
 
@@ -122,6 +123,9 @@ class FakeBackend:
     def seek(self, position_ms: int) -> None:
         self.seeks.append(position_ms)
         self.position = position_ms
+
+    def set_rate(self, rate: float) -> None:
+        self.rates.append(rate)
 
     def set_volume(self, volume: int) -> None: ...
     def get_volume(self) -> int:
@@ -254,6 +258,27 @@ def test_shuffle_and_repeat_persist_in_settings(qapp: QApplication, tmp_path) ->
         player.shuffle = False
         player.repeat = False
         assert settings.shuffle is False and settings.repeat is False
+    finally:
+        player.shutdown()
+
+
+def test_speed_cycles_and_radio_always_uses_normal_speed(qapp: QApplication, tmp_path) -> None:
+    player, backend = _fake_player(track_count=3, settings=_isolated_settings(tmp_path))
+    try:
+        assert player.play_index(0) is True
+        assert backend.rates[-1] == 1.0
+        assert player.cycle_speed() == 1.5
+        assert backend.rates[-1] == 1.5
+        assert player.cycle_speed() == 2.0
+        assert player.cycle_speed() == 1.0
+
+        player.set_speed(2.0)
+        assert player.play_stream("https://example.com/radio") is True
+        assert backend.rates[-1] == 1.0
+        assert player.speed == 2.0
+
+        assert player.play_index(1) is True
+        assert backend.rates[-1] == 2.0
     finally:
         player.shutdown()
 

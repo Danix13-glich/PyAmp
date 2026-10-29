@@ -216,6 +216,30 @@ def _mac_bundle(executable: Path) -> Path | None:
     return None
 
 
+def is_installed_application() -> bool:
+    if not is_frozen():
+        return False
+    exe = distributable_path()
+    if exe is None:
+        return False
+    system = platform.system()
+    if system == "Linux":
+        bin_dir = (_home() / ".local" / "bin").resolve()
+        return exe.parent.resolve() == bin_dir and exe.name.startswith(APP_ID)
+    if system == "Windows":
+        local = os.environ.get("LOCALAPPDATA")
+        if not local:
+            return False
+        target_dir = (Path(local) / "Programs" / APP_NAME).resolve()
+        return exe.parent.resolve() == target_dir
+    if system == "Darwin":
+        bundle = _mac_bundle(exe)
+        if bundle is None:
+            return False
+        return bundle.parent.resolve() == (_home() / "Applications").resolve()
+    return False
+
+
 def _install_macos(report: ProgressCallback) -> InstallResult:
     exe = distributable_path()
     bundle = _mac_bundle(exe) if exe is not None else None

@@ -58,6 +58,9 @@ _EN: dict[str, str] = {
     "Repetir: repite la pista actual una vez y se desactiva": (
         "Repeat: play the current track once more, then turn off"
     ),
+    "Velocidad de reproducción": "Playback speed",
+    "Velocidad de reproducción: {speed}": "Playback speed: {speed}",
+    "Velocidad {speed}": "Speed {speed}",
     "Repetición desactivada (repetida una vez)": "Repeat off (played once more)",
     "Marcar la pista actual como favorita": "Mark the current track as a favorite",
     "Favorito": "Favorite",
@@ -330,9 +333,19 @@ _EN: dict[str, str] = {
         "Click to see the 10 most played songs from last month."
     ),
     "Ver historial": "View history",
-    # ------------------------------------------------ 0.2.1: ajustes/avanzado
+    # ------------------------------------------------ 0.2.2: ajustes/avanzado
     "Avanzado": "Advanced",
     "Proximamente... :)": "Coming soon... :)",
+    "Restaurar valores de fábrica": "Restore factory settings",
+    "Restaura todos los ajustes de PyAmp a sus valores originales.\nLa biblioteca y tus archivos de música no se tocan.": (
+        "Restores all PyAmp settings to their original values.\n"
+        "Your library and music files are not touched."
+    ),
+    "¿Restaurar todos los ajustes a sus valores de fábrica?\nSe perderán tus preferencias, el tema activo, las emisoras y los atajos personalizados. La biblioteca y tus archivos de música no se tocan.": (
+        "Restore all settings to factory defaults?\n"
+        "Your preferences, active theme, radio stations and custom shortcuts will be lost. "
+        "Your library and music files are not touched."
+    ),
     "Eliminar tema": "Delete theme",
     "Nombre del tema actual": "Current theme name",
     "¿Eliminar el tema «{name}»?": "Delete the theme “{name}”?",
@@ -416,6 +429,9 @@ _IT: dict[str, str] = {
     "Repetir: repite la pista actual una vez y se desactiva": (
         "Ripeti: riproduce il brano attuale una volta, poi si disattiva"
     ),
+    "Velocidad de reproducción": "Velocità di riproduzione",
+    "Velocidad de reproducción: {speed}": "Velocità di riproduzione: {speed}",
+    "Velocidad {speed}": "Velocità {speed}",
     "Repetición desactivada (repetida una vez)": ("Ripetizione disattivata (riprodotto una volta)"),
     "Marcar la pista actual como favorita": "Segna il brano attuale come preferito",
     "Favorito": "Preferito",
@@ -693,9 +709,19 @@ _IT: dict[str, str] = {
         "Premi per vedere i 10 brani più ascoltati del mese scorso."
     ),
     "Ver historial": "Vedi cronologia",
-    # ------------------------------------------------ 0.2.1: ajustes/avanzado
+    # ------------------------------------------------ 0.2.2: ajustes/avanzado
     "Avanzado": "Avanzate",
     "Proximamente... :)": "Prossimamente... :)",
+    "Restaurar valores de fábrica": "Ripristina valori di fabbrica",
+    "Restaura todos los ajustes de PyAmp a sus valores originales.\nLa biblioteca y tus archivos de música no se tocan.": (
+        "Ripristina tutte le impostazioni di PyAmp ai valori originali.\n"
+        "La libreria e i file musicali non vengono toccati."
+    ),
+    "¿Restaurar todos los ajustes a sus valores de fábrica?\nSe perderán tus preferencias, el tema activo, las emisoras y los atajos personalizados. La biblioteca y tus archivos de música no se tocan.": (
+        "Ripristinare tutte le impostazioni ai valori di fabbrica?\n"
+        "Perderai preferenze, tema attivo, emittenti e scorciatoie personalizzate. "
+        "La libreria e i file musicali non vengono toccati."
+    ),
     "Eliminar tema": "Elimina tema",
     "Nombre del tema actual": "Nome del tema attuale",
     "¿Eliminar el tema «{name}»?": "Eliminare il tema «{name}»?",
@@ -785,6 +811,9 @@ _AR: dict[str, str] = {
     "Repetir: repite la pista actual una vez y se desactiva": (
         "تكرار: يعيد المقطع الحالي مرة واحدة ثم يتوقف"
     ),
+    "Velocidad de reproducción": "سرعة التشغيل",
+    "Velocidad de reproducción: {speed}": "سرعة التشغيل: {speed}",
+    "Velocidad {speed}": "السرعة {speed}",
     "Repetición desactivada (repetida una vez)": "تم إيقاف التكرار (أُعيد مرة واحدة)",
     "Marcar la pista actual como favorita": "وضع علامة على المقطع الحالي كمفضل",
     "Favorito": "مفضل",
@@ -1054,9 +1083,18 @@ _AR: dict[str, str] = {
         "اضغط لعرض أكثر 10 أغانٍ استماعاً في الشهر الماضي."
     ),
     "Ver historial": "عرض السجل",
-    # ------------------------------------------------ 0.2.1: ajustes/avanzado
+    # ------------------------------------------------ 0.2.2: ajustes/avanzado
     "Avanzado": "متقدم",
     "Proximamente... :)": "قريباً... :)",
+    "Restaurar valores de fábrica": "استعادة إعدادات المصنع",
+    "Restaura todos los ajustes de PyAmp a sus valores originales.\nLa biblioteca y tus archivos de música no se tocan.": (
+        "يعيد جميع إعدادات PyAmp إلى قيمها الأصلية.\n" "لن تتأثر المكتبة وملفات الموسيقى."
+    ),
+    "¿Restaurar todos los ajustes a sus valores de fábrica?\nSe perderán tus preferencias, el tema activo, las emisoras y los atajos personalizados. La biblioteca y tus archivos de música no se tocan.": (
+        "هل تريد استعادة جميع الإعدادات إلى إعدادات المصنع؟\n"
+        "ستفقد تفضيلاتك والسمة النشطة ومحطات الراديو والاختصارات المخصصة. "
+        "لن تتأثر المكتبة وملفات الموسيقى."
+    ),
     "Eliminar tema": "حذف السمة",
     "Nombre del tema actual": "اسم السمة الحالية",
     "¿Eliminar el tema «{name}»?": "هل تريد حذف السمة «{name}»؟",

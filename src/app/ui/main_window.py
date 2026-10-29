@@ -168,6 +168,7 @@ class MainWindow(QMainWindow):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._settings: Settings = get_settings()
+        self._factory_reset_pending = False
         self._player = Player(settings=self._settings)
 
         # ÚNICO punto del programa que lanza notificaciones de escritorio.
@@ -326,6 +327,13 @@ class MainWindow(QMainWindow):
         self._button_repeat.setChecked(self._settings.repeat)
         self._button_repeat.toggled.connect(self._on_repeat_toggled)
         transport_row.addWidget(self._button_repeat)
+
+        self._button_speed = QToolButton()
+        self._button_speed.setText(self._speed_label(self._player.speed))
+        self._button_speed.setToolTip(self._speed_tooltip(self._player.speed))
+        self._button_speed.setAccessibleName(tr("Velocidad de reproducción"))
+        self._button_speed.clicked.connect(self._on_speed_clicked)
+        transport_row.addWidget(self._button_speed)
 
         transport_row.addStretch(1)
 
@@ -1103,6 +1111,7 @@ class MainWindow(QMainWindow):
         self._slider_seek.setVisible(not radio)
         self._button_shuffle.setVisible(not radio)
         self._button_repeat.setVisible(not radio)
+        self._button_speed.setVisible(not radio)
         self._button_favorite.setVisible(not radio)
         self._update_time_label(self._slider_seek.value())
 
@@ -1308,7 +1317,14 @@ class MainWindow(QMainWindow):
         dialog.apply_show_hidden.connect(self._apply_show_hidden_from_dialog)
         dialog.apply_shortcuts.connect(self._apply_shortcuts_from_dialog)
         dialog.test_notification.connect(self._send_test_notification)
+        dialog.factory_reset.connect(self._on_factory_reset)
         dialog.exec()
+
+    def _on_factory_reset(self) -> None:
+        # Evita que closeEvent vuelva a escribir geometría, lista o posición.
+        self._factory_reset_pending = True
+        logger.info("Ajustes restaurados a valores de fábrica; reiniciando")
+        QTimer.singleShot(0, self._restart_app)
 
     def _on_apply_language(self, code: str) -> None:
         language = str(code).strip().lower()
@@ -1324,7 +1340,7 @@ class MainWindow(QMainWindow):
             args = list(sys.argv[1:])
         else:
             args = [str(Path(sys.argv[0]).resolve()), *sys.argv[1:]]
-        logger.info("Reiniciando PyAmp para aplicar el idioma (%s)", program)
+        logger.info("Reiniciando PyAmp (%s)", program)
         QProcess.startDetached(program, args)
         QApplication.quit()
 
@@ -1500,6 +1516,21 @@ class MainWindow(QMainWindow):
         self._player.repeat = checked
         self.statusBar().showMessage(
             tr("Repetición activada") if checked else tr("Repetición desactivada"), ERROR_TIMEOUT_MS
+        )
+
+    def _speed_label(self, speed: float) -> str:
+        return f"{speed:g}x"
+
+    def _speed_tooltip(self, speed: float) -> str:
+        return tr("Velocidad de reproducción: {speed}").format(speed=self._speed_label(speed))
+
+    def _on_speed_clicked(self) -> None:
+        speed = self._player.cycle_speed()
+        self._button_speed.setText(self._speed_label(speed))
+        self._button_speed.setToolTip(self._speed_tooltip(speed))
+        self.statusBar().showMessage(
+            tr("Velocidad {speed}").format(speed=self._speed_label(speed)),
+            ERROR_TIMEOUT_MS,
         )
 
     def _on_repeat_consumed(self) -> None:
@@ -1808,10 +1839,11 @@ class MainWindow(QMainWindow):
             self._update_mute_icon(True)
 
     def closeEvent(self, event: object) -> None:
-        self._save_playback_state()
-        self._settings.window_geometry = self.saveGeometry()
-        self._settings.playlist_paths = [track.path for track in self._player.playlist]
-        self._settings.playlist_index = self._player.playlist.current_index
+        if not self._factory_reset_pending:
+            self._save_playback_state()
+            self._settings.window_geometry = self.saveGeometry()
+            self._settings.playlist_paths = [track.path for track in self._player.playlist]
+            self._settings.playlist_index = self._player.playlist.current_index
 
         if self._folder_loader is not None and self._folder_loader.isRunning():
             self._folder_loader.wait(5000)

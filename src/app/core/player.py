@@ -35,6 +35,8 @@ RESUME_SEEK_DELAY_MS = 900
 RESUME_VERIFY_DELAY_MS = 500
 RESUME_POSITION_TOLERANCE_MS = 2000
 RESUME_MAX_ATTEMPTS = 3
+#: Velocidades disponibles en el botón de velocidad (música y favoritos).
+PLAYBACK_SPEEDS = (1.0, 1.5, 2.0)
 
 _MERGED_FIELDS = (
     "title",
@@ -82,6 +84,7 @@ class Player(QObject):
         self._duration = 0
         self._shuffle = bool(self._settings.shuffle)
         self._repeat = bool(self._settings.repeat)
+        self._speed = PLAYBACK_SPEEDS[0]
         #: Pista sintética de la emisora en curso (None si suena un archivo).
         self._stream_track: Track | None = None
         #: Posición pendiente de aplicar cuando suene una pista concreta.
@@ -177,6 +180,21 @@ class Player(QObject):
         self._repeat = bool(value)
         self._settings.repeat = self._repeat
 
+    @property
+    def speed(self) -> float:
+        return self._speed
+
+    def set_speed(self, speed: float) -> float:
+        value = min(PLAYBACK_SPEEDS, key=lambda option: abs(option - float(speed)))
+        self._speed = value
+        if self._backend is not None and not self.is_stream:
+            self._backend.set_rate(value)
+        return value
+
+    def cycle_speed(self) -> float:
+        index = PLAYBACK_SPEEDS.index(self._speed)
+        return self.set_speed(PLAYBACK_SPEEDS[(index + 1) % len(PLAYBACK_SPEEDS)])
+
     # ------------------------------------------------------------ de reproducción
     def add_paths(self, paths: list[str]) -> list[Track]:
         tracks = [Track(path=str(Path(p))) for p in paths if p]
@@ -202,6 +220,9 @@ class Player(QObject):
         try:
             backend.load(str(url))
             backend.play()
+            # La radio siempre suena a velocidad normal; la preferencia de
+            # velocidad se conserva para la siguiente canción.
+            backend.set_rate(1.0)
         except BackendError as exc:
             logger.error("No se pudo reproducir el flujo %s: %s", url, exc)
             self.error_occurred.emit(str(exc))
@@ -378,6 +399,7 @@ class Player(QObject):
         try:
             backend.load(track.path)
             backend.play()
+            backend.set_rate(self._speed)
         except BackendError as exc:
             logger.error("No se pudo reproducir %s: %s", track.path, exc)
             self.error_occurred.emit(str(exc))

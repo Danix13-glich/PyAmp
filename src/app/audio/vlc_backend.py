@@ -195,6 +195,15 @@ class VlcBackend(AudioBackend):
         if length and length > 0:
             self._player.set_position(target / float(length))
 
+    # --------------------------------------------------------------- velocidad
+    def set_rate(self, rate: float) -> None:
+        value = max(0.25, min(4.0, float(rate)))
+        with contextlib.suppress(Exception):
+            self._player.set_rate(value)
+        if self._analyzer is not None:
+            with contextlib.suppress(Exception):
+                self._analyzer.set_rate(value)
+
     # ---------------------------------------------------------------- volumen
     def set_volume(self, volume: int) -> None:
         self._volume = max(0, min(100, int(volume)))

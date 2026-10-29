@@ -115,6 +115,12 @@ class Settings:
     def sync(self) -> None:
         self._settings.sync()
 
+    def reset(self) -> None:
+        # Borra solo las preferencias de PyAmp; la biblioteca y la música
+        # del usuario viven fuera de QSettings y no se tocan.
+        self._settings.clear()
+        self._settings.sync()
+
     # ------------------------------------------------------------- playback
     @property
     def volume(self) -> int:

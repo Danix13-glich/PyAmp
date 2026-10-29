@@ -661,10 +661,10 @@ def test_settings_dialog_has_tabs_and_appearance(
     assert dialog._create_group.isVisible() is False  # noqa: SLF001 - tests
 
 
-def test_settings_advanced_tab_shows_coming_soon(
+def test_settings_advanced_tab_tiene_restaurar_fabrica(
     qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from PySide6.QtWidgets import QLabel, QTabWidget
+    from PySide6.QtWidgets import QLabel, QPushButton, QTabWidget
 
     from app.themes import manager as theme_manager
 
@@ -676,7 +676,9 @@ def test_settings_advanced_tab_shows_coming_soon(
     assert tabs is not None
     advanced = tabs.widget(tabs.count() - 1)
     texts = [label.text() for label in advanced.findChildren(QLabel)]
-    assert "Proximamente... :)" in texts
+    assert any("Restaura todos los ajustes" in text for text in texts)
+    buttons = [button.text() for button in advanced.findChildren(QPushButton)]
+    assert "Restaurar valores de fábrica" in buttons
 
 
 def test_settings_theme_selector_and_name_share_row(
@@ -707,6 +709,47 @@ def test_settings_info_shows_author_os_and_install(
     assert any("(" in text and ")" in text for text in texts)  # sistema
     assert dialog._button_install.text() == "Instalar"  # noqa: SLF001
     assert not hasattr(dialog, "_install_progress")  # la barra vive en su ventana
+
+
+def test_settings_oculta_instalar_si_ya_esta_instalada(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.themes import manager as theme_manager
+    from app.ui import settings_dialog as settings_dialog_module
+
+    monkeypatch.setattr(theme_manager, "USER_THEMES_DIR", tmp_path / "themes")
+    monkeypatch.setattr(theme_manager, "_cache", None)
+    monkeypatch.setattr(settings_dialog_module, "is_installed_application", lambda: True)
+
+    dialog = SettingsDialog(get_settings(), notifier_backend="test", version="0.2.1")
+
+    assert dialog._button_install.isHidden()  # noqa: SLF001 - tests
+
+
+def test_settings_restaurar_fabrica_emite_y_limpia(
+    qapp: QApplication, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from PySide6.QtWidgets import QMessageBox
+
+    from app.core.settings import Settings
+    from app.themes import manager as theme_manager
+
+    monkeypatch.setattr(theme_manager, "USER_THEMES_DIR", tmp_path / "themes")
+    monkeypatch.setattr(theme_manager, "_cache", None)
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: QMessageBox.StandardButton.Yes)
+
+    settings = Settings(tmp_path / "reset.conf")
+    settings.volume = 55
+    settings.last_playback = {"path": "/tmp/x.mp3", "position_ms": 1000}
+    dialog = SettingsDialog(settings, notifier_backend="test", version="0.2.1")
+    received: list[bool] = []
+    dialog.factory_reset.connect(lambda: received.append(True))
+
+    dialog._on_factory_reset()  # noqa: SLF001 - tests
+
+    assert received == [True]
+    assert settings.volume == 100
+    assert settings.last_playback is None
 
 
 def test_installer_source_mode_creates_desktop_entry(

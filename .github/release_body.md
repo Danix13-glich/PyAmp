@@ -1,4 +1,4 @@
-# PyAmp 0.2.2
+# PyAmp 0.2.3
 
 ## Novedades
 
@@ -6,6 +6,9 @@
 - **Botón para buscar la letra** cuando la canción no tiene letra o el `.lrc` está vacío.
 - **Reanudación al abrir**: si cierras la app a mitad de una canción, al volver a abrirla continúa desde ese mismo punto (o queda lista para continuar si estaba en pausa).
 - **Barra de posición arrastrable**: se puede pulsar y arrastrar para saltar a cualquier punto de la canción.
+- **Restaurar valores de fábrica** desde **Ajustes → Avanzado**, con confirmación; no borra la biblioteca ni los archivos de música.
+- El botón **Instalar** desaparece cuando PyAmp ya se está ejecutando desde su instalación.
+- **Velocidad de reproducción** para música y favoritos: botón a la derecha de Repetir que alterna **1x → 1.5x → 2x**. La radio suena siempre a velocidad normal.
 - **Radio**: botones **Editar**, **Eliminar** y **Nuevo** debajo de la lista; el botón Play retoma la última emisora escuchada.
 - **Corrección de cuelgues de libVLC** al cambiar de pista rápidamente o al terminar una canción: cada reproductor usa su propio objeto `Media` y no se llama a VLC desde sus callbacks.
 - **Notificaciones de escritorio** con carátula corregidas (el formato `image-data` de D-Bus era rechazado).
@@ -14,8 +17,8 @@
 
 ## Archivos
 
-- `pyamp_0.2.2.AppImage` — Linux (x86_64)
-- `pyamp_0.2.2.exe` — Windows (x64)
-- `pyamp_0.2.2.dmg` — macOS (Intel, funciona también en Apple Silicon con Rosetta)
+- `pyamp_0.2.3.AppImage` — Linux (x86_64)
+- `pyamp_0.2.3.exe` — Windows (x64)
+- `pyamp_0.2.3.dmg` — macOS (Intel, funciona también en Apple Silicon con Rosetta)
 
 > En Linux el AppImage incluye libVLC. En Windows y macOS las versiones empaquetadas también lo incluyen; si el audio no arranca, instala VLC desde videolan.org.

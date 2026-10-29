@@ -47,7 +47,7 @@ from app.themes import (
     rename_custom_theme,
 )
 from app.ui.install_dialog import InstallDialog
-from app.utils.installer import is_frozen, remove_installer
+from app.utils.installer import is_frozen, is_installed_application, remove_installer
 
 #: Valor centinela del combo de temas para «crear uno nuevo».
 CREATE_THEME_SENTINEL = "__create_theme__"
@@ -92,6 +92,7 @@ class SettingsDialog(QDialog):
     apply_show_hidden = Signal(bool)
     apply_shortcuts = Signal(dict)
     test_notification = Signal()
+    factory_reset = Signal()
 
     def __init__(
         self,
@@ -102,6 +103,7 @@ class SettingsDialog(QDialog):
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
+        self._settings = settings
         self.setWindowTitle(tr("Ajustes de PyAmp"))
         self.setModal(True)
         self.setMinimumSize(*DIALOG_MIN_SIZE)
@@ -200,6 +202,10 @@ class SettingsDialog(QDialog):
         self._button_install.setToolTip(tr("Instala PyAmp en este equipo"))
         self._button_install.clicked.connect(self._on_install)
         install_layout.addWidget(self._button_install)
+        if is_installed_application():
+            # Ya se ejecuta desde la copia instalada: no hay nada que instalar.
+            self._button_install.hide()
+            install_box.hide()
         info_form.addRow(install_box)
         outer.addWidget(info_group)
         outer.addStretch(1)
@@ -363,12 +369,42 @@ class SettingsDialog(QDialog):
     def _build_advanced(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        hint = QLabel(tr("Proximamente... :)"))
-        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addStretch(1)
-        layout.addWidget(hint)
+        layout.setSpacing(12)
+
+        reset_group = QGroupBox(tr("Restaurar valores de fábrica"))
+        reset_layout = QVBoxLayout(reset_group)
+        hint = QLabel(
+            tr(
+                "Restaura todos los ajustes de PyAmp a sus valores originales.\n"
+                "La biblioteca y tus archivos de música no se tocan."
+            )
+        )
+        hint.setWordWrap(True)
+        reset_layout.addWidget(hint)
+        self._button_factory_reset = QPushButton(tr("Restaurar valores de fábrica"))
+        self._button_factory_reset.clicked.connect(self._on_factory_reset)
+        reset_layout.addWidget(self._button_factory_reset, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(reset_group)
         layout.addStretch(1)
         return page
+
+    def _on_factory_reset(self) -> None:
+        answer = QMessageBox.warning(
+            self,
+            tr("Restaurar valores de fábrica"),
+            tr(
+                "¿Restaurar todos los ajustes a sus valores de fábrica?\n"
+                "Se perderán tus preferencias, el tema activo, las emisoras y los "
+                "atajos personalizados. La biblioteca y tus archivos de música no se tocan."
+            ),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._settings.reset()
+        self.accept()
+        self.factory_reset.emit()
 
     # ------------------------------------------------------------ instalación
     def _on_install(self) -> None:
