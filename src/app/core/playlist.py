@@ -15,6 +15,29 @@ logger = logging.getLogger(__name__)
 M3U_HEADER = "#EXTM3U"
 
 
+def read_m3u_paths(path: str | Path) -> list[str]:
+    """Rutas de un M3U, sin exigir que los archivos existan."""
+    source = Path(path).expanduser()
+    base_dir = source.parent
+    result: list[str] = []
+    seen: set[str] = set()
+    for line in source.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+        text = line.strip()
+        if not text or text.startswith("#"):
+            continue
+        candidate = Path(text)
+        if not candidate.is_absolute():
+            candidate = base_dir / candidate
+        try:
+            resolved = str(candidate.resolve())
+        except OSError:
+            resolved = str(candidate)
+        if resolved not in seen:
+            seen.add(resolved)
+            result.append(resolved)
+    return result
+
+
 def audio_filter_string() -> str:
     return " ".join(f"*{ext}" for ext in sorted(AUDIO_EXTENSIONS))
 

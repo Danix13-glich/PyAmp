@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -350,6 +351,38 @@ def is_favorite(conn: sqlite3.Connection, path: str) -> bool:
     return bool(row["is_favorite"]) if row is not None else False
 
 
+def _path_key(path: str) -> str:
+    return os.path.normcase(os.path.normpath(str(path)))
+
+
+def set_favorites(conn: sqlite3.Connection, paths: list[str]) -> tuple[int, list[str]]:
+    """Marca como favoritas las rutas que existan en la biblioteca.
+
+    Devuelve cuántas se marcaron y las rutas que no están en canciones.
+    """
+    unique: dict[str, str] = {}
+    for path in paths:
+        unique.setdefault(_path_key(path), str(path))
+    rows = conn.execute("SELECT path FROM tracks").fetchall()
+    existing = {_path_key(row["path"]): str(row["path"]) for row in rows}
+    found: list[str] = []
+    missing: list[str] = []
+    for key, original in unique.items():
+        database_path = existing.get(key)
+        if database_path is None:
+            missing.append(original)
+        else:
+            found.append(database_path)
+    if found:
+        with conn:
+            conn.executemany(
+                "UPDATE tracks SET is_favorite = 1 WHERE path = ?",
+                [(path,) for path in found],
+            )
+    logger.info("Favoritos importados: %d marcados, %d ausentes", len(found), len(missing))
+    return len(found), missing
+
+
 def favorite_tracks(conn: sqlite3.Connection, limit: int = 10000) -> list[Track]:
     rows = conn.execute(
         """SELECT * FROM tracks WHERE is_favorite = 1
@@ -468,6 +501,9 @@ class LibraryDatabase:
 
     def is_favorite(self, path: str) -> bool:
         return is_favorite(self._conn, path)
+
+    def set_favorites(self, paths: list[str]) -> tuple[int, list[str]]:
+        return set_favorites(self._conn, paths)
 
     def favorite_tracks(self, limit: int = 10000) -> list[Track]:
         return favorite_tracks(self._conn, limit)

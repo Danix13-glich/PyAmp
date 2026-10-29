@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QSlider,
     QStackedWidget,
     QStyle,
@@ -50,6 +51,7 @@ from app.core.settings import (
 from app.i18n import set_language, tr
 from app.library.covers import extract_cover
 from app.library.database import LibraryDatabase, previous_month_key
+from app.library.favorites_io import export_favorites, import_favorites
 from app.library.metadata import format_audio_info, read_metadata, write_metadata
 from app.library.models import RadioStation, Track
 from app.library.scanner import ScannerThread
@@ -379,11 +381,31 @@ class MainWindow(QMainWindow):
         show_hidden = self._settings.show_hidden
         self._songs_table.set_show_hidden(show_hidden)
         self._favorites_table.set_show_hidden(show_hidden)
+
+        self._favorites_page = QWidget()
+        favorites_layout = QVBoxLayout(self._favorites_page)
+        favorites_layout.setContentsMargins(0, 0, 0, 0)
+        favorites_layout.setSpacing(4)
+        favorites_actions = QHBoxLayout()
+        self._button_export_favorites = QPushButton(tr("Exportar favoritos"))
+        self._button_export_favorites.setToolTip(
+            tr("Exportar la lista de favoritos a un archivo M3U")
+        )
+        self._button_import_favorites = QPushButton(tr("Importar favoritos"))
+        self._button_import_favorites.setToolTip(
+            tr("Marcar como favoritas las canciones de un archivo M3U")
+        )
+        favorites_actions.addWidget(self._button_export_favorites)
+        favorites_actions.addWidget(self._button_import_favorites)
+        favorites_actions.addStretch(1)
+        favorites_layout.addLayout(favorites_actions)
+        favorites_layout.addWidget(self._favorites_table, stretch=1)
+
         self._radio = RadioLibrary(self._settings)
         self._radio_panel = RadioPanel(self._radio)
         self._stacked = QStackedWidget()
         self._stacked.addWidget(self._songs_table)  # índice 0: canciones
-        self._stacked.addWidget(self._favorites_table)  # índice 1: favoritos
+        self._stacked.addWidget(self._favorites_page)  # índice 1: favoritos
         self._stacked.addWidget(self._radio_panel)  # índice 2: radio
         layout.addWidget(self._stacked, stretch=1)
 
@@ -665,6 +687,8 @@ class MainWindow(QMainWindow):
         self._favorites_table.favorite_toggled.connect(self._on_favorite_row_toggled)
         self._favorites_table.refresh_requested.connect(self._on_refresh_songs)
         self._favorites_table.action_requested.connect(self._on_songs_action)
+        self._button_export_favorites.clicked.connect(self._on_export_favorites)
+        self._button_import_favorites.clicked.connect(self._on_import_favorites)
         self._radio_panel.play_requested.connect(self._on_radio_play)
         self._radio_panel.stop_requested.connect(self._on_radio_stop)
         self._radio_panel.station_selected.connect(self._on_radio_selection)
@@ -915,6 +939,118 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(
             tr("Playlist guardada en {path}").format(path=path), ERROR_TIMEOUT_MS
         )
+
+    def _on_export_favorites(self) -> None:
+        try:
+            tracks = self._library.favorite_tracks()
+        except Exception as exc:  # noqa: BLE001 - informar sin cerrar la app
+            logger.warning("No se pudieron leer los favoritos: %s", exc)
+            QMessageBox.warning(
+                self,
+                tr("Exportar favoritos"),
+                tr("No se pudo exportar la lista de favoritos: {error}").format(error=exc),
+            )
+            return
+        if not tracks:
+            QMessageBox.information(
+                self,
+                tr("Exportar favoritos"),
+                tr("No hay canciones favoritas para exportar."),
+            )
+            return
+        try:
+            PLAYLISTS_DIR.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            logger.warning("No se pudo preparar la carpeta de listas: %s", exc)
+        suggested = str(PLAYLISTS_DIR / "favoritos.m3u")
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            tr("Exportar lista de favoritos"),
+            suggested,
+            tr("Playlist M3U (*.m3u);;Todos los archivos (*)"),
+        )
+        if not path:
+            return
+        if not Path(path).suffix:
+            path += ".m3u"
+        try:
+            export_favorites(tracks, path)
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                tr("Exportar favoritos"),
+                tr("No se pudo exportar la lista de favoritos: {error}").format(error=exc),
+            )
+            return
+        self.statusBar().showMessage(
+            (
+                tr("Favoritos exportados en {path} (1 canción).").format(path=path)
+                if len(tracks) == 1
+                else tr("Favoritos exportados en {path} ({count} canciones).").format(
+                    path=path, count=len(tracks)
+                )
+            ),
+            ERROR_TIMEOUT_MS,
+        )
+
+    def _favorites_marked_message(self, count: int) -> str:
+        if count == 1:
+            return tr("Se marcó 1 canción como favorita.")
+        return tr("Se marcaron {count} canciones como favoritas.").format(count=count)
+
+    def _on_import_favorites(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            tr("Importar lista de favoritos"),
+            str(PLAYLISTS_DIR),
+            tr("Playlists (*.m3u *.m3u8);;Todos los archivos (*)"),
+        )
+        if not path:
+            return
+        try:
+            marked, missing = import_favorites(self._library, path)
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                tr("Importar favoritos"),
+                tr("No se pudo importar la lista de favoritos: {error}").format(error=exc),
+            )
+            return
+        self._favorites_table.refresh()
+        self._songs_table.refresh()
+        current = self._player.current_track
+        if current is not None and current.path:
+            self._button_favorite.setChecked(self._library.is_favorite(current.path))
+        if marked:
+            self.statusBar().showMessage(
+                self._favorites_marked_message(marked),
+                ERROR_TIMEOUT_MS,
+            )
+        elif not missing:
+            QMessageBox.information(
+                self,
+                tr("Importar favoritos"),
+                tr("La lista no contiene canciones."),
+            )
+            return
+        if missing:
+            shown = "\n".join(f"• {missing_path}" for missing_path in missing[:10])
+            if len(missing) > 10:
+                shown += "\n" + tr("… y {count} más").format(count=len(missing) - 10)
+            intro = (
+                self._favorites_marked_message(marked)
+                if marked
+                else tr("Ninguna canción de la lista está en tu biblioteca.")
+            )
+            QMessageBox.warning(
+                self,
+                tr("Importar favoritos"),
+                intro
+                + "\n\n"
+                + tr("Estas canciones de la lista no están en tu biblioteca:\n\n{missing}").format(
+                    missing=shown
+                ),
+            )
 
     def _on_clear_playlist(self) -> None:
         self._player.stop()
@@ -1611,7 +1747,7 @@ class MainWindow(QMainWindow):
 
     def _selected_track(self) -> Track | None:
         current = self._stacked.currentWidget()
-        if current is self._favorites_table:
+        if current is self._favorites_page:
             selected = self._favorites_table.selected_track()
         elif current is self._songs_table:
             selected = self._songs_table.selected_track()

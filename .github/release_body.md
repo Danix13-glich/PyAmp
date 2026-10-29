@@ -10,6 +10,7 @@
 - **Notificaciones**: se eliminó el ajuste de duración; se usa una duración fija del sistema.
 - El botón **Instalar** desaparece cuando PyAmp ya se está ejecutando desde su instalación.
 - **Velocidad de reproducción** para música y favoritos: botón a la derecha de Repetir que alterna **1x → 1.5x → 2x**. La radio suena siempre a velocidad normal.
+- **Exportar e importar favoritos** desde la vista Favoritos: exporta la lista a `.m3u` e importa una lista para marcar sus canciones como favoritas. Si alguna canción de la lista no está en la biblioteca, se avisa en una ventana con las rutas que no se encontraron.
 - **Radio**: botones **Editar**, **Eliminar** y **Nuevo** debajo de la lista; el botón Play retoma la última emisora escuchada.
 - **Corrección de cuelgues de libVLC** al cambiar de pista rápidamente o al terminar una canción: cada reproductor usa su propio objeto `Media` y no se llama a VLC desde sus callbacks.
 - **Notificaciones de escritorio** con carátula corregidas (el formato `image-data` de D-Bus era rechazado).

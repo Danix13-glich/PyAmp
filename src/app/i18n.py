@@ -138,6 +138,35 @@ _EN: dict[str, str] = {
     "Playlist M3U (*.m3u);;Todos los archivos (*)": "M3U playlist (*.m3u);;All files (*)",
     "No se pudo cargar la playlist: {error}": "Could not load the playlist: {error}",
     "No se pudo guardar la playlist: {error}": "Could not save the playlist: {error}",
+    "Exportar favoritos": "Export favorites",
+    "Importar favoritos": "Import favorites",
+    "Exportar la lista de favoritos a un archivo M3U": ("Export the favorites list to an M3U file"),
+    "Marcar como favoritas las canciones de un archivo M3U": (
+        "Mark the songs in an M3U file as favorites"
+    ),
+    "Exportar lista de favoritos": "Export favorites list",
+    "Importar lista de favoritos": "Import favorites list",
+    "No se pudo exportar la lista de favoritos: {error}": (
+        "Could not export the favorites list: {error}"
+    ),
+    "No hay canciones favoritas para exportar.": "There are no favorite songs to export.",
+    "Favoritos exportados en {path} ({count} canciones).": (
+        "Favorites exported to {path} ({count} songs)."
+    ),
+    "Favoritos exportados en {path} (1 canción).": ("Favorites exported to {path} (1 song)."),
+    "No se pudo importar la lista de favoritos: {error}": (
+        "Could not import the favorites list: {error}"
+    ),
+    "Se marcaron {count} canciones como favoritas.": ("{count} songs were marked as favorites."),
+    "Se marcó 1 canción como favorita.": "1 song was marked as a favorite.",
+    "La lista no contiene canciones.": "The list contains no songs.",
+    "… y {count} más": "… and {count} more",
+    "Ninguna canción de la lista está en tu biblioteca.": (
+        "None of the songs in the list are in your library."
+    ),
+    "Estas canciones de la lista no están en tu biblioteca:\n\n{missing}": (
+        "These songs from the list are not in your library:\n\n{missing}"
+    ),
     # ------------------------------------------------------ vista Canciones
     "Nombre": "Name",
     "Duración": "Duration",
@@ -515,6 +544,39 @@ _IT: dict[str, str] = {
     "Playlist M3U (*.m3u);;Todos los archivos (*)": "Playlist M3U (*.m3u);;Tutti i file (*)",
     "No se pudo cargar la playlist: {error}": "Impossibile caricare la playlist: {error}",
     "No se pudo guardar la playlist: {error}": "Impossibile salvare la playlist: {error}",
+    "Exportar favoritos": "Esporta preferiti",
+    "Importar favoritos": "Importa preferiti",
+    "Exportar la lista de favoritos a un archivo M3U": (
+        "Esporta l'elenco dei preferiti in un file M3U"
+    ),
+    "Marcar como favoritas las canciones de un archivo M3U": (
+        "Contrassegna come preferiti i brani di un file M3U"
+    ),
+    "Exportar lista de favoritos": "Esporta elenco preferiti",
+    "Importar lista de favoritos": "Importa elenco preferiti",
+    "No se pudo exportar la lista de favoritos: {error}": (
+        "Impossibile esportare l'elenco dei preferiti: {error}"
+    ),
+    "No hay canciones favoritas para exportar.": "Non ci sono brani preferiti da esportare.",
+    "Favoritos exportados en {path} ({count} canciones).": (
+        "Preferiti esportati in {path} ({count} brani)."
+    ),
+    "Favoritos exportados en {path} (1 canción).": ("Preferiti esportati in {path} (1 brano)."),
+    "No se pudo importar la lista de favoritos: {error}": (
+        "Impossibile importare l'elenco dei preferiti: {error}"
+    ),
+    "Se marcaron {count} canciones como favoritas.": (
+        "{count} brani contrassegnati come preferiti."
+    ),
+    "Se marcó 1 canción como favorita.": "1 brano contrassegnato come preferito.",
+    "La lista no contiene canciones.": "L'elenco non contiene brani.",
+    "… y {count} más": "… e altri {count}",
+    "Ninguna canción de la lista está en tu biblioteca.": (
+        "Nessun brano dell'elenco è nella tua libreria."
+    ),
+    "Estas canciones de la lista no están en tu biblioteca:\n\n{missing}": (
+        "Questi brani dell'elenco non sono nella tua libreria:\n\n{missing}"
+    ),
     # ------------------------------------------------------ vista Canciones
     "Nombre": "Nome",
     "Duración": "Durata",
@@ -900,6 +962,29 @@ _AR: dict[str, str] = {
     "Playlist M3U (*.m3u);;Todos los archivos (*)": "قائمة تشغيل M3U (*.m3u);;كل الملفات (*)",
     "No se pudo cargar la playlist: {error}": "تعذّر تحميل قائمة التشغيل: {error}",
     "No se pudo guardar la playlist: {error}": "تعذّر حفظ قائمة التشغيل: {error}",
+    "Exportar favoritos": "تصدير المفضلة",
+    "Importar favoritos": "استيراد المفضلة",
+    "Exportar la lista de favoritos a un archivo M3U": ("تصدير قائمة المفضلة إلى ملف M3U"),
+    "Marcar como favoritas las canciones de un archivo M3U": ("وضع علامة مفضلة على أغاني ملف M3U"),
+    "Exportar lista de favoritos": "تصدير قائمة المفضلة",
+    "Importar lista de favoritos": "استيراد قائمة المفضلة",
+    "No se pudo exportar la lista de favoritos: {error}": ("تعذّر تصدير قائمة المفضلة: {error}"),
+    "No hay canciones favoritas para exportar.": "لا توجد أغانٍ مفضلة للتصدير.",
+    "Favoritos exportados en {path} ({count} canciones).": (
+        "تم تصدير المفضلة إلى {path} ({count} أغنية)."
+    ),
+    "Favoritos exportados en {path} (1 canción).": ("تم تصدير المفضلة إلى {path} (أغنية واحدة)."),
+    "No se pudo importar la lista de favoritos: {error}": ("تعذّر استيراد قائمة المفضلة: {error}"),
+    "Se marcaron {count} canciones como favoritas.": ("تم وضع علامة مفضلة على {count} أغنية."),
+    "Se marcó 1 canción como favorita.": "تم وضع علامة مفضلة على أغنية واحدة.",
+    "La lista no contiene canciones.": "القائمة لا تحتوي على أغانٍ.",
+    "… y {count} más": "… و{count} أخرى",
+    "Ninguna canción de la lista está en tu biblioteca.": (
+        "لا توجد أي أغنية من القائمة في مكتبتك."
+    ),
+    "Estas canciones de la lista no están en tu biblioteca:\n\n{missing}": (
+        "هذه الأغاني من القائمة ليست في مكتبتك:\n\n{missing}"
+    ),
     # ------------------------------------------------------ vista Canciones
     "Nombre": "الاسم",
     "Duración": "المدة",
