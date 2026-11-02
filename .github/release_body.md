@@ -1,26 +1,19 @@
-# PyAmp 0.2.3
+# PyAmp 0.2.4
 
-## Novedades
+## Correcciones
 
-- **Letras automáticas desde internet**: al reproducir una canción sin archivo `.lrc`, PyAmp busca la letra en LRCLIB y la guarda **junto a la canción**, con el mismo nombre y extensión `.lrc` (por ejemplo, `Cancion.mp3` → `Cancion.lrc`). Si la carpeta no permite escribir, usa `~/.local/share/PyAmp/lyrics`. Antes de aceptarla comprueba que la **duración** coincida (margen de 3 segundos), que **coincida algún artista** y que el **título del archivo esté en el nombre de la letra online**. Se prefiere la letra sincronizada; si no existe, guarda la letra plana.
-- **Botón para buscar la letra** cuando la canción no tiene letra o el `.lrc` está vacío.
-- **Reanudación al abrir**: si cierras la app a mitad de una canción, al volver a abrirla continúa desde ese mismo punto (o queda lista para continuar si estaba en pausa).
-- **Barra de posición arrastrable**: se puede pulsar y arrastrar para saltar a cualquier punto de la canción.
-- **Restaurar valores de fábrica** desde **Ajustes → Avanzado**: borra biblioteca, favoritos, listas, radios, temas personalizados y todos los ajustes (incluido el idioma), sin tocar tus archivos de música. Al terminar cierra la app y envía una notificación para abrirla de nuevo.
-- **Notificaciones**: se eliminó el ajuste de duración; se usa una duración fija del sistema.
-- El botón **Instalar** desaparece cuando PyAmp ya se está ejecutando desde su instalación.
-- **Velocidad de reproducción** para música y favoritos: botón a la derecha de Repetir que alterna **1x → 1.5x → 2x**. La radio suena siempre a velocidad normal.
-- **Exportar e importar favoritos** desde la vista Favoritos: exporta la lista a `.m3u` e importa una lista para marcar sus canciones como favoritas. Si alguna canción de la lista no está en la biblioteca, se avisa en una ventana con las rutas que no se encontraron.
-- **Radio**: botones **Editar**, **Eliminar** y **Nuevo** debajo de la lista; el botón Play retoma la última emisora escuchada.
-- **Corrección de cuelgues de libVLC** al cambiar de pista rápidamente o al terminar una canción: cada reproductor usa su propio objeto `Media` y no se llama a VLC desde sus callbacks.
-- **Notificaciones de escritorio** con carátula corregidas (el formato `image-data` de D-Bus era rechazado).
-- **Espectro sin micrófono**: libVLC decodifica una copia en paralelo y entrega las muestras directamente, sin capturar el audio del sistema.
-- **Dependencias automáticas** si ejecutas desde el código, e instalación en una ventana propia con pausa al 90 %.
+- Corregidos bugs y fallos leves.
+- **Letras sincronizadas**: la búsqueda online solo acepta letras con marcas de tiempo, descarta las letras planas y sustituye las antiguas por una sincronizada cuando la encuentra.
+- **Búsqueda de letras más fiable**: deduce el artista desde el nombre del archivo, limpia `feat.`, paréntesis y corchetes, prueba varias combinaciones y reintenta ante errores temporales.
+- **Botón A para ver la letra** junto a Favoritos, también con el atajo `Ctrl+L`.
+- La letra encontrada se guarda automáticamente junto a la canción.
+- **Corregido el bloqueo de la barra de posición** al saltar a una parte de la canción desde el lector de letras.
+- Corregido el avance de la reproducción después de un salto manual si VLC se quedaba detenido en ese punto.
 
 ## Archivos
 
-- `pyamp_0.2.3.AppImage` — Linux (x86_64)
-- `pyamp_0.2.3.exe` — Windows (x64)
-- `pyamp_0.2.3.dmg` — macOS (Intel, funciona también en Apple Silicon con Rosetta)
+- `pyamp_0.2.4.AppImage` — Linux (x86_64)
+- `pyamp_0.2.4.exe` — Windows (x64)
+- `pyamp_0.2.4.dmg` — macOS (Intel, funciona también en Apple Silicon con Rosetta)
 
 > En Linux el AppImage incluye libVLC. En Windows y macOS las versiones empaquetadas también lo incluyen; si el audio no arranca, instala VLC desde videolan.org.

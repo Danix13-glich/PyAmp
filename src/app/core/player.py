@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import random
 from pathlib import Path
@@ -35,6 +36,11 @@ RESUME_SEEK_DELAY_MS = 900
 RESUME_VERIFY_DELAY_MS = 500
 RESUME_POSITION_TOLERANCE_MS = 2000
 RESUME_MAX_ATTEMPTS = 3
+#: Un salto manual desde la letra o la barra debe seguir avanzando. libVLC 3
+#: puede quedarse detenido justo en el punto pedido; se comprueba y se repite.
+SEEK_VERIFY_DELAY_MS = 900
+SEEK_VERIFY_TOLERANCE_MS = 150
+SEEK_MAX_ATTEMPTS = 2
 #: Velocidades disponibles en el botón de velocidad (música y favoritos).
 PLAYBACK_SPEEDS = (1.0, 1.5, 2.0)
 
@@ -91,6 +97,8 @@ class Player(QObject):
         self._resume_position_ms = 0
         self._resume_path: str | None = None
         self._resume_attempts = 0
+        self._seek_target_ms: int | None = None
+        self._seek_attempts = 0
 
         # NB: `_audio_error_msg` NO se llama `_backend_error` para no pisar
         # la señal Qt `_backend_error`.
@@ -231,6 +239,7 @@ class Player(QObject):
         # la cabecera muestran el nombre de la radio, no la última canción.
         self._stream_track = track
         self.clear_resume_position()
+        self.clear_seek_verification()
         self._duration = 0
         self._set_state(STATE_PLAYING)
         self._timer.start()
@@ -273,6 +282,7 @@ class Player(QObject):
             return
         self._backend.pause()
         self._timer.stop()
+        self.clear_seek_verification()
         self._set_state(STATE_PAUSED)
 
     def stop(self) -> None:
@@ -285,6 +295,7 @@ class Player(QObject):
         self._timer.stop()
         self._duration = 0
         self.clear_resume_position()
+        self.clear_seek_verification()
         self._set_state(STATE_STOPPED)
         self.position_changed.emit(0)
         self.duration_changed.emit(0)
@@ -323,10 +334,26 @@ class Player(QObject):
         if self._backend is None:
             self._emit_unavailable()
             return
+        target = max(0, int(position_ms))
         # Un salto manual del usuario tiene prioridad sobre la reanudación.
         self.clear_resume_position()
-        self._backend.seek(max(0, int(position_ms)))
-        self.position_changed.emit(max(0, int(position_ms)))
+        self.clear_seek_verification()
+        self._backend.seek(target)
+        self.position_changed.emit(target)
+        if self._state != STATE_PLAYING:
+            return
+        # Tras un seek, libVLC 3 puede dejar el reloj detenido en ese punto.
+        # Se reanuda explícitamente y se verifica que la posición avance.
+        self._timer.start()
+        with contextlib.suppress(Exception):
+            self._backend.resume()
+        self._seek_target_ms = target
+        self._seek_attempts = 0
+        QTimer.singleShot(SEEK_VERIFY_DELAY_MS, self._verify_seek_position)
+
+    def clear_seek_verification(self) -> None:
+        self._seek_target_ms = None
+        self._seek_attempts = 0
 
     def set_resume_position(self, position_ms: int, path: str | None = None) -> None:
         target = str(path or (self.current_track.path if self.current_track else ""))
@@ -389,6 +416,7 @@ class Player(QObject):
     def shutdown(self) -> None:
         self._timer.stop()
         self.clear_resume_position()
+        self.clear_seek_verification()
         if self._backend is not None:
             self._backend.release()
             self._backend = None
@@ -403,6 +431,7 @@ class Player(QObject):
             return False
 
         self._stream_track = None
+        self.clear_seek_verification()
         self._merge_metadata(track)
         resume_ms = self._take_resume_position(track.path)
         try:
@@ -449,6 +478,40 @@ class Player(QObject):
         # VLC puede aceptar el seek pero quedarse en otro punto si aún está
         # terminando de abrir el archivo; se comprueba y se reintenta.
         QTimer.singleShot(RESUME_VERIFY_DELAY_MS, self._verify_resume_position)
+
+    def _verify_seek_position(self) -> None:
+        backend = self._backend
+        target = self._seek_target_ms
+        if backend is None or target is None:
+            return
+        if self._state != STATE_PLAYING:
+            self.clear_seek_verification()
+            return
+        position = backend.position_ms()
+        if position > target + SEEK_VERIFY_TOLERANCE_MS:
+            # El reloj avanzó normalmente: el salto quedó bien aplicado.
+            self.clear_seek_verification()
+            return
+        if self._seek_attempts >= SEEK_MAX_ATTEMPTS:
+            logger.warning(
+                "El salto manual a %d ms no avanzó; VLC está en %d ms",
+                target,
+                position,
+            )
+            self.clear_seek_verification()
+            return
+        self._seek_attempts += 1
+        logger.debug(
+            "Repitiendo salto manual a %d ms (intento %d, posición %d)",
+            target,
+            self._seek_attempts,
+            position,
+        )
+        backend.seek(target)
+        with contextlib.suppress(Exception):
+            backend.resume()
+        self.position_changed.emit(target)
+        QTimer.singleShot(SEEK_VERIFY_DELAY_MS, self._verify_seek_position)
 
     def _verify_resume_position(self) -> None:
         backend = self._backend

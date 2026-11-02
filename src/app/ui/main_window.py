@@ -54,7 +54,7 @@ from app.library.favorites_io import export_favorites, import_favorites
 from app.library.metadata import format_audio_info, read_metadata, write_metadata
 from app.library.models import RadioStation, Track
 from app.library.scanner import ScannerThread
-from app.lyrics.online import OnlineLyricsWorker
+from app.lyrics.online import OnlineLyricsWorker, lyrics_file_is_synced
 from app.notifications.notifier import Notifier
 from app.radio import RadioLibrary, RadioSearchWorker
 from app.radio.song_search import SongDownloadWorker, SongResult, SongSearchWorker
@@ -388,6 +388,17 @@ class MainWindow(QMainWindow):
         self._button_favorite.clicked.connect(self._on_favorite_clicked)
         transport_row.addWidget(self._button_favorite)
 
+        self._button_lyrics = QToolButton()
+        self._button_lyrics.setText("A")
+        lyrics_font = self._button_lyrics.font()
+        lyrics_font.setBold(True)
+        self._button_lyrics.setFont(lyrics_font)
+        self._button_lyrics.setToolTip(f"{tr('Ver letra')} ({SHORTCUT_DEFAULTS['lyrics']})")
+        self._button_lyrics.setAccessibleName(tr("Ver letra"))
+        self._button_lyrics.setEnabled(False)
+        self._button_lyrics.clicked.connect(self._on_show_lyrics)
+        transport_row.addWidget(self._button_lyrics)
+
         self._button_mute = QToolButton()
         self._button_mute.setCheckable(True)
         self._button_mute.setToolTip(tr("Silenciar (mute)"))
@@ -583,6 +594,9 @@ class MainWindow(QMainWindow):
         next_label = f"{tr('Siguiente')} ({self._shortcut_label('next')})"
         self._button_next.setToolTip(next_label)
         self._button_next.setAccessibleName(next_label)
+        lyrics_label = f"{tr('Ver letra')} ({self._shortcut_label('lyrics')})"
+        self._button_lyrics.setToolTip(lyrics_label)
+        self._button_lyrics.setAccessibleName(lyrics_label)
         self._on_state_changed(self._player.state)
 
     def _build_shortcuts(self) -> None:
@@ -1140,6 +1154,7 @@ class MainWindow(QMainWindow):
             except Exception as exc:  # noqa: BLE001 - la música no se detiene
                 logger.debug("Sin estado de favorito: %s", exc)
         self._button_favorite.setChecked(favorite)
+        self._button_lyrics.setEnabled("://" not in track.path and bool(track.path))
 
         if self._lyrics_window is not None and self._lyrics_window.isVisible():
             self._lyrics_window.show_track(track)
@@ -1162,6 +1177,7 @@ class MainWindow(QMainWindow):
         self._update_time_label(0)
         self._button_favorite.setEnabled(False)
         self._button_favorite.setChecked(False)
+        self._button_lyrics.setEnabled(False)
         if self._mpris is not None:
             self._mpris.update_metadata("")
 
@@ -1303,6 +1319,7 @@ class MainWindow(QMainWindow):
         self._button_repeat.setVisible(not radio)
         self._button_speed.setVisible(not radio)
         self._button_favorite.setVisible(not radio)
+        self._button_lyrics.setVisible(not radio)
         self._button_radio_song.setVisible(radio)
         self._update_radio_song_button()
         self._update_time_label(self._slider_seek.value())
@@ -1989,14 +2006,20 @@ class MainWindow(QMainWindow):
         ):
             self._lyrics_window.show_track(track)
 
-    def _ensure_online_lyrics(self, track: Track) -> None:
+    def _needs_online_lyrics(self, track: Track) -> bool:
         if not track.path or "://" in track.path:
-            return
-        if find_lrc_path(track.path) is not None:
+            return False
+        existing = find_lrc_path(track.path)
+        return existing is None or not lyrics_file_is_synced(existing)
+
+    def _ensure_online_lyrics(self, track: Track) -> None:
+        if not self._needs_online_lyrics(track):
             return
         if self._lyrics_search is not None and self._lyrics_search.isRunning():
             # Solo se guarda la última pista: las respuestas viejas se ignoran.
-            self._lyrics_pending = track
+            # Si ya se está buscando esta misma pista, no se encola otra vez.
+            if self._lyrics_search.track_path != track.path:
+                self._lyrics_pending = track
             return
         self._start_online_lyrics(track)
 
@@ -2070,6 +2093,8 @@ class MainWindow(QMainWindow):
         ):
             window.set_searching(True)
             window.set_status(tr("Buscando letra en internet…"))
+        elif track is not None and self._needs_online_lyrics(track):
+            self._ensure_online_lyrics(track)
         window.show()
         window.raise_()
         window.activateWindow()
@@ -2079,6 +2104,14 @@ class MainWindow(QMainWindow):
     def _on_lyrics_seek(self, position_ms: int) -> None:
         if self._player.current_track is None:
             return
+        # Un salto desde la letra no debe dejar la barra bloqueada si quedó
+        # marcada como "arrastrando" por una interacción anterior. Se bloquean
+        # las señales para no aplicar un seek doble al soltar el deslizador.
+        self._slider_seek.blockSignals(True)
+        self._slider_seek.setSliderDown(False)
+        self._slider_seek.setValue(position_ms)
+        self._slider_seek.blockSignals(False)
+        self._update_time_label(position_ms)
         if self._player.state == STATE_STOPPED:
             # Arranca y, en cuanto VLC tiene la pista, salta al punto pedido.
             self._player.play()

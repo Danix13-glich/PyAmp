@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication
 from app.core.player import (
     RESUME_SEEK_DELAY_MS,
     RESUME_VERIFY_DELAY_MS,
+    SEEK_VERIFY_DELAY_MS,
     STATE_PLAYING,
     Player,
 )
@@ -403,6 +404,45 @@ def test_resume_position_no_afecta_a_otra_pista(qapp: QApplication, tmp_path: Pa
         QTest.qWait(RESUME_SEEK_DELAY_MS + 100)
 
         assert backend.seeks == []
+    finally:
+        player.shutdown()
+
+
+def test_seek_manual_reintenta_si_la_posicion_se_queda_congelada(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    settings = _isolated_settings(tmp_path)
+    player, backend = _fake_player(settings=settings)
+    try:
+        assert player.play_index(0) is True
+        player.seek(50000)
+        assert backend.seeks == [50000]
+        assert backend.position == 50000
+
+        QTest.qWait(SEEK_VERIFY_DELAY_MS + 150)
+
+        assert backend.seeks == [50000, 50000]
+    finally:
+        player.shutdown()
+
+
+def test_seek_manual_no_reintenta_si_la_posicion_avanza(qapp: QApplication, tmp_path: Path) -> None:
+    settings = _isolated_settings(tmp_path)
+    player, backend = _fake_player(settings=settings)
+    original_seek = backend.seek
+
+    def advancing_seek(position_ms: int) -> None:
+        original_seek(position_ms)
+        backend.position = position_ms + 1000
+
+    backend.seek = advancing_seek  # type: ignore[method-assign]
+    try:
+        assert player.play_index(0) is True
+        player.seek(50000)
+
+        QTest.qWait(SEEK_VERIFY_DELAY_MS + 150)
+
+        assert backend.seeks == [50000]
     finally:
         player.shutdown()
 

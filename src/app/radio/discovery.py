@@ -13,7 +13,7 @@ from app.library.models import RadioStation
 logger = logging.getLogger(__name__)
 
 #: Identificador que se envía a las APIs (buena práctica en radio-browser).
-USER_AGENT = "PyAmp/0.2.1 (+https://github.com/Danix13-glich/PyAmp)"
+USER_AGENT = "PyAmp/0.2.4 (+https://github.com/Danix13-glich/PyAmp)"
 
 #: Servicios de geolocalización por IP, en orden de preferencia.
 GEO_URLS = (

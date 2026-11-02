@@ -10,7 +10,7 @@ def _candidate(
     name: str = "Song",
     artist: str = "Artist",
     duration: float = 200.0,
-    synced: str = "",
+    synced: str = "[00:01.00]Letra sincronizada",
     plain: str = "Letra de prueba",
 ) -> online.OnlineLyrics:
     return online.OnlineLyrics(name, artist, duration, synced, plain)
@@ -48,10 +48,31 @@ def test_select_exige_duracion_artista_y_titulo() -> None:
 
 
 def test_select_prefiere_letra_sincronizada() -> None:
-    plain = _candidate(plain="Letra plana")
+    plain = _candidate(synced="", plain="Letra plana")
     synced = _candidate(synced="[00:01.00]Letra sincronizada")
     selected = online.select_lyrics("Song", "Artist", 200_000, [plain, synced])
     assert selected is synced
+
+
+def test_select_ignora_letra_plana() -> None:
+    plain = _candidate(synced="", plain="Letra plana")
+    assert online.select_lyrics("Song", "Artist", 200_000, [plain]) is None
+
+
+def test_search_lyrics_no_guarda_letra_plana(tmp_path: Path, monkeypatch) -> None:
+    plain = _candidate(synced="", plain="Letra plana")
+    monkeypatch.setattr(online, "LYRICS_DIR", tmp_path)
+    monkeypatch.setattr(online, "_search_candidates", lambda title, artist, timeout_s=0: [plain])
+    monkeypatch.setattr(online, "_search_candidates_query", lambda query, timeout_s=0: [plain])
+    track = Track(
+        path=str(tmp_path / "music" / "song.mp3"),
+        title="Song",
+        artist="Artist",
+        duration_ms=200_000,
+    )
+
+    assert online.fetch_lyrics(track) is None
+    assert not (tmp_path / "music" / "song.lrc").exists()
 
 
 def test_fetch_lyrics_guarda_lrc(tmp_path: Path, monkeypatch) -> None:
@@ -93,7 +114,9 @@ def test_fetch_lyrics_usa_la_letra_antigua_de_la_carpeta_de_datos(
         artist="Artist",
         duration_ms=200_000,
     )
-    assert online.fetch_lyrics(track) == shared
+    sidecar = tmp_path / "music" / "song.lrc"
+    assert online.fetch_lyrics(track) == sidecar
+    assert "[00:01.00]Vieja" in sidecar.read_text(encoding="utf-8")
 
 
 def test_fetch_lyrics_cae_en_la_carpeta_de_datos_si_no_puede_escribir(
@@ -127,14 +150,14 @@ def test_fetch_lyrics_cae_en_la_carpeta_de_datos_si_no_puede_escribir(
     assert "[00:01.00]Hola" in result.read_text(encoding="utf-8")
 
 
-def test_fetch_lyrics_no_toca_un_lrc_existente(tmp_path: Path, monkeypatch) -> None:
+def test_fetch_lyrics_no_toca_un_lrc_sincronizado(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(online, "LYRICS_DIR", tmp_path)
     sidecar = tmp_path / "music" / "song.lrc"
     sidecar.parent.mkdir(parents=True)
-    sidecar.write_text("letra local", encoding="utf-8")
+    sidecar.write_text("[00:01.00]letra local", encoding="utf-8")
 
     def _falla(*_args, **_kwargs):
-        raise AssertionError("no debe buscar si ya hay letra local")
+        raise AssertionError("no debe buscar si ya hay una letra sincronizada")
 
     monkeypatch.setattr(online, "_search_candidates", _falla)
     track = Track(
@@ -144,6 +167,47 @@ def test_fetch_lyrics_no_toca_un_lrc_existente(tmp_path: Path, monkeypatch) -> N
         duration_ms=200_000,
     )
     assert online.fetch_lyrics(track) == sidecar
+
+
+def test_fetch_lyrics_reemplaza_letra_plana_por_sincronizada(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(online, "LYRICS_DIR", tmp_path)
+    sidecar = tmp_path / "music" / "song.lrc"
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text("letra local sin tiempos", encoding="utf-8")
+    candidate = _candidate(synced="[00:01.00]Hola")
+    monkeypatch.setattr(
+        online, "_search_candidates", lambda title, artist, timeout_s=0: [candidate]
+    )
+    track = Track(
+        path=str(tmp_path / "music" / "song.mp3"),
+        title="Song",
+        artist="Artist",
+        duration_ms=200_000,
+    )
+
+    assert online.fetch_lyrics(track) == sidecar
+    assert "[00:01.00]Hola" in sidecar.read_text(encoding="utf-8")
+
+
+def test_fetch_lyrics_conserva_letra_plana_si_no_hay_sincronizada(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.setattr(online, "LYRICS_DIR", tmp_path)
+    sidecar = tmp_path / "music" / "song.lrc"
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text("letra local sin tiempos", encoding="utf-8")
+    plain = _candidate(synced="", plain="Letra plana")
+    monkeypatch.setattr(online, "_search_candidates", lambda title, artist, timeout_s=0: [plain])
+    monkeypatch.setattr(online, "_search_candidates_query", lambda query, timeout_s=0: [plain])
+    track = Track(
+        path=str(tmp_path / "music" / "song.mp3"),
+        title="Song",
+        artist="Artist",
+        duration_ms=200_000,
+    )
+
+    assert online.fetch_lyrics(track) is None
+    assert sidecar.read_text(encoding="utf-8") == "letra local sin tiempos"
 
 
 def test_fetch_lyrics_force_rellena_un_lrc_vacio(tmp_path: Path, monkeypatch) -> None:
@@ -186,3 +250,105 @@ def test_search_reintenta_con_el_primer_artista(tmp_path: Path, monkeypatch) -> 
 
     assert online.search_lyrics(track) == candidate
     assert calls == ["Artist A, Artist B", "Artist A"]
+
+
+def test_search_lyrics_infiere_artista_del_nombre_de_archivo(tmp_path: Path, monkeypatch) -> None:
+    candidate = _candidate(artist="Artist")
+    calls: list[tuple[str, str]] = []
+
+    def _fake(title: str, artist: str, timeout_s: int = 0):
+        calls.append((title, artist))
+        return [candidate]
+
+    monkeypatch.setattr(online, "_search_candidates", _fake)
+    track = Track(
+        path=str(tmp_path / "Artist - Song.mp3"),
+        title="Song",
+        artist=None,
+        duration_ms=200_000,
+    )
+
+    assert online.search_lyrics(track) == candidate
+    assert calls[0] == ("Song", "Artist")
+
+
+def test_search_lyrics_tolera_diferencia_de_duracion(tmp_path: Path, monkeypatch) -> None:
+    candidate = _candidate(duration=212.0)
+    monkeypatch.setattr(
+        online, "_search_candidates", lambda title, artist, timeout_s=0: [candidate]
+    )
+    monkeypatch.setattr(online, "_search_candidates_query", lambda query, timeout_s=0: [])
+    track = Track(
+        path=str(tmp_path / "song.mp3"),
+        title="Song",
+        artist="Artist",
+        duration_ms=200_000,
+    )
+
+    assert online.search_lyrics(track) == candidate
+
+
+def test_search_lyrics_prueba_consulta_libre_si_no_hay_resultados(
+    tmp_path: Path, monkeypatch
+) -> None:
+    candidate = _candidate()
+    queries: list[str] = []
+    monkeypatch.setattr(online, "_search_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        online,
+        "_search_candidates_query",
+        lambda query, timeout_s=0: queries.append(query) or [candidate],
+    )
+    track = Track(
+        path=str(tmp_path / "song.mp3"),
+        title="Song",
+        artist="Artist",
+        duration_ms=200_000,
+    )
+
+    assert online.search_lyrics(track) == candidate
+    assert queries == ["Artist Song"]
+
+
+def test_clean_track_title_quita_feat_y_parentesis() -> None:
+    assert online.clean_track_title("Song (feat. Other)") == "Song"
+    assert online.clean_track_title("Song [Remastered]") == "Song"
+    assert online.clean_track_title("Canción") == "Canción"
+
+
+def test_lyrics_file_is_synced(tmp_path: Path) -> None:
+    synced = tmp_path / "synced.lrc"
+    synced.write_text("[00:01.00]Hola\n", encoding="utf-8")
+    plain = tmp_path / "plain.lrc"
+    plain.write_text("Hola\n", encoding="utf-8")
+
+    assert online.lyrics_file_is_synced(synced)
+    assert not online.lyrics_file_is_synced(plain)
+    assert not online.lyrics_file_is_synced(tmp_path / "missing.lrc")
+
+
+def test_fetch_lyrics_copia_la_sincronizada_compartida_junto_al_audio(
+    tmp_path: Path, monkeypatch
+) -> None:
+    lyrics_dir = tmp_path / "datos"
+    monkeypatch.setattr(online, "LYRICS_DIR", lyrics_dir)
+    sidecar = tmp_path / "music" / "song.lrc"
+    sidecar.parent.mkdir(parents=True)
+    sidecar.write_text("letra plana", encoding="utf-8")
+    shared = lyrics_dir / "song.lrc"
+    shared.parent.mkdir(parents=True)
+    shared.write_text("[00:01.00]Hola", encoding="utf-8")
+
+    def _falla(*_args, **_kwargs):
+        raise AssertionError("no debe buscar si ya hay una letra sincronizada")
+
+    monkeypatch.setattr(online, "_search_candidates", _falla)
+    track = Track(
+        path=str(tmp_path / "music" / "song.mp3"),
+        title="Song",
+        artist="Artist",
+        duration_ms=200_000,
+    )
+
+    assert online.fetch_lyrics(track) == sidecar
+    assert "[00:01.00]Hola" in sidecar.read_text(encoding="utf-8")
