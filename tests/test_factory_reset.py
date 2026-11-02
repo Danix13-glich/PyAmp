@@ -22,6 +22,15 @@ def test_settings_reset_borra_idioma_radio_y_notificaciones(tmp_path) -> None:
     assert settings.notifications_enabled is True
 
 
+def test_settings_spectrum_zones_default_and_validation(tmp_path) -> None:
+    settings = Settings(tmp_path / "zones.conf")
+    assert settings.spectrum_zones == 2
+    settings.spectrum_zones = 1
+    assert settings.spectrum_zones == 1
+    settings.spectrum_zones = 9
+    assert settings.spectrum_zones == 2
+
+
 def test_factory_reset_limpia_todo_y_avisa(monkeypatch: pytest.MonkeyPatch) -> None:
     from app.ui import main_window as main_window_module
     from app.ui.main_window import FACTORY_RESET_CLOSE_DELAY_MS, MainWindow

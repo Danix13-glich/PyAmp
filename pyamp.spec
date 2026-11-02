@@ -16,6 +16,7 @@ if themes.is_dir():
 hiddenimports = [
     "vlc",
     "app.notifications.linux_notifier",
+    "app.notifications.reset_helper",
     "app.notifications.windows_notifier",
     "app.notifications.macos_notifier",
 ]

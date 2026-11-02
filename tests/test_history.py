@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtWidgets import QApplication, QFrame, QLabel
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QApplication, QFrame, QLabel, QToolButton
 
 from app.ui.history_window import MEDAL_COLORS, NOT_READY_TEXT, HistoryWindow
 
@@ -47,3 +48,38 @@ def test_history_window_title_falls_back_to_filename() -> None:
     texts = " ".join(label.text() for label in window.findChildren(QLabel))
     assert "mi-tema" in texts
     assert "Artista desconocido" in texts
+
+
+def test_history_window_searches_tab_allows_delete() -> None:
+    _qapp()
+    window = HistoryWindow(
+        [],
+        searches=[
+            {
+                "id": 7,
+                "title": "Canción",
+                "artist": "Artista",
+                "duration_ms": 125000,
+                "link": "https://example.com/tema",
+            }
+        ],
+    )
+    texts = " ".join(label.text() for label in window.findChildren(QLabel))
+    assert "Canciones buscadas:" in texts
+    assert "Canción" in texts
+    assert "2:05" in texts
+    received: list[int] = []
+    window.delete_requested.connect(received.append)
+
+    delete = next(
+        button
+        for button in window.findChildren(QToolButton)
+        if button.toolTip() == "Eliminar esta búsqueda"
+    )
+    delete.click()
+    QTest.qWait(10)
+
+    assert received == [7]
+    assert "Todavía no hay canciones buscadas." in " ".join(
+        label.text() for label in window.findChildren(QLabel)
+    )

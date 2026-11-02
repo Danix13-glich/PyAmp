@@ -160,6 +160,11 @@ class Notifier:
         # notificaciones desactivadas antes de restablecer los ajustes.
         title = tr("PyAmp se ha restablecido")
         body = tr("Abre de nuevo PyAmp para continuar.")
+        if platform.system() == "Linux" and self._backend_name == "linux-dbus":
+            from .reset_helper import spawn_reset_notification
+
+            if spawn_reset_notification(title, body, tr("Abrir PyAmp")):
+                return
         try:
             result = self._send("PyAmp", title, body, None)
             waiter = getattr(result, "result", None)

@@ -85,6 +85,9 @@ class AudioBackend(ABC):
     def duration_ms(self) -> int:
         pass
 
+    def stream_title(self) -> str:
+        return ""
+
     @abstractmethod
     def release(self) -> None:
         pass

@@ -85,7 +85,7 @@ class SettingsDialog(QDialog):
 
     apply_language = Signal(str)
     apply_settings = Signal(bool)
-    apply_appearance = Signal(str, bool, bool)  # tema, espectro, carátula
+    apply_appearance = Signal(str, bool, bool, int)  # tema, espectro, carátula, zonas
     apply_window_size = Signal(int, int)
     apply_show_hidden = Signal(bool)
     apply_shortcuts = Signal(dict)
@@ -281,6 +281,16 @@ class SettingsDialog(QDialog):
         self._check_spectrum = QCheckBox(tr("Mostrar espectrograma en la cabecera"))
         self._check_spectrum.setChecked(settings.show_spectrum)
         form.addRow(self._check_spectrum)
+
+        self._combo_spectrum_zones = QComboBox()
+        self._combo_spectrum_zones.addItem(tr("2 zonas (actual)"), 2)
+        self._combo_spectrum_zones.addItem(tr("1 zona"), 1)
+        zones_index = self._combo_spectrum_zones.findData(settings.spectrum_zones)
+        self._combo_spectrum_zones.setCurrentIndex(zones_index if zones_index >= 0 else 0)
+        self._combo_spectrum_zones.setToolTip(tr("Forma del espectrograma: dos zonas o una sola"))
+        form.addRow(tr("Tipo de espectrograma:"), self._combo_spectrum_zones)
+        self._combo_spectrum_zones.setEnabled(settings.show_spectrum)
+        self._check_spectrum.toggled.connect(self._combo_spectrum_zones.setEnabled)
 
         self._check_cover = QCheckBox(tr("Mostrar imagen en la cabecera"))
         self._check_cover.setChecked(settings.show_cover)
@@ -481,6 +491,7 @@ class SettingsDialog(QDialog):
             self._resolve_theme_id(),
             self._check_spectrum.isChecked(),
             self._check_cover.isChecked(),
+            int(self._combo_spectrum_zones.currentData() or 2),
         )
         self.apply_window_size.emit(self._spin_width.value(), self._spin_height.value())
         self.apply_show_hidden.emit(self._check_hidden.isChecked())

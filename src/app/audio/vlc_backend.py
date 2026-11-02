@@ -47,6 +47,7 @@ class VlcBackend(AudioBackend):
         self._muted = False
         self._audio_dirty = False
         self._has_media = False
+        self._is_stream = False
 
         # Segundo reproductor solo para el espectro: decodifica el mismo
         # audio y entrega las muestras por callback, sin tocar la salida de
@@ -125,7 +126,8 @@ class VlcBackend(AudioBackend):
     # ------------------------------------------------------------------ carga
     def load(self, path: str) -> None:
         text = str(path).strip()
-        if "://" in text:
+        self._is_stream = "://" in text
+        if self._is_stream:
             media = self._instance.media_new_location(text)
         else:
             file_path = Path(text).expanduser()
@@ -198,11 +200,33 @@ class VlcBackend(AudioBackend):
     # --------------------------------------------------------------- velocidad
     def set_rate(self, rate: float) -> None:
         value = max(0.25, min(4.0, float(rate)))
+        was_playing = self.is_playing()
+        # libVLC 3 puede dejar el reloj de audio sin sonido tras cambiar la
+        # velocidad. Volver a pedir la posición actual obliga a reajustar el
+        # reloj y la salida de audio. En directo no se hace: no hay posición
+        # fija y un seek podría cortar la emisora.
+        position = self._player.get_time() if was_playing and not self._is_stream else None
         with contextlib.suppress(Exception):
             self._player.set_rate(value)
+        if position is not None and position >= 0:
+            with contextlib.suppress(Exception):
+                self._player.set_time(position)
         if self._analyzer is not None:
             with contextlib.suppress(Exception):
                 self._analyzer.set_rate(value)
+            if position is not None and position >= 0:
+                with contextlib.suppress(Exception):
+                    self._analyzer.set_time(position)
+        if was_playing:
+            # Refrescar volumen/mute por si el cambio de velocidad recreó la
+            # salida de audio.
+            self._audio_dirty = True
+        logger.debug(
+            "Velocidad VLC: %.2fx (reposición=%s, stream=%s)",
+            value,
+            position,
+            self._is_stream,
+        )
 
     # ---------------------------------------------------------------- volumen
     def set_volume(self, volume: int) -> None:
@@ -256,6 +280,24 @@ class VlcBackend(AudioBackend):
         if not length or length < 0:
             return 0
         return int(length)
+
+    def stream_title(self) -> str:
+        if not self._has_media or not self._is_stream:
+            return ""
+        media = self._player.get_media()
+        if media is None:
+            return ""
+        try:
+            value = media.get_meta(self._vlc.Meta.NowPlaying)
+            text = str(value).strip() if value else ""
+            if text:
+                return text
+        except Exception as exc:  # noqa: BLE001 - metadata ICY opcional
+            logger.debug("Sin metadatos del directo: %s", exc)
+        finally:
+            with contextlib.suppress(Exception):
+                media.release()
+        return ""
 
     def release(self) -> None:
         try:

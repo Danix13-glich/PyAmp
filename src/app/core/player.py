@@ -377,6 +377,15 @@ class Player(QObject):
             return 0
         return self._backend.duration_ms()
 
+    def stream_title(self) -> str:
+        if self._backend is None or not self.is_stream:
+            return ""
+        try:
+            return str(self._backend.stream_title()).strip()
+        except Exception as exc:  # noqa: BLE001 - metadatos opcionales
+            logger.debug("Sin título del directo: %s", exc)
+            return ""
+
     def shutdown(self) -> None:
         self._timer.stop()
         self.clear_resume_position()

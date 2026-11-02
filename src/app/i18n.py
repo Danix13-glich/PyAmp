@@ -419,6 +419,61 @@ _EN: dict[str, str] = {
         "Automatic installation is only available in the packaged app."
     ),
     "Sistema operativo no compatible.": "Unsupported operating system.",
+    # ------------------------------------------- 0.2.3: radio/búsquedas/historial
+    "Buscar en internet la canción que suena en la radio": (
+        "Search the internet for the song playing on the radio"
+    ),
+    "Buscar canción de la radio": "Search radio song",
+    "Esta función solo está disponible mientras suena la radio": (
+        "This feature is only available while the radio is playing"
+    ),
+    "La emisora no está informando del nombre de la canción": (
+        "The station is not reporting the song name"
+    ),
+    "Sin información de la canción": "No song information",
+    "Esta emisora no envía el nombre de la canción que está sonando.": (
+        "This station does not send the name of the song that is playing."
+    ),
+    "Buscando «{term}» en internet…": "Searching for “{term}” online…",
+    "Identificando la canción de la radio…": "Identifying the radio song…",
+    "Canción encontrada": "Song found",
+    "Canción encontrada: {name} — {artist}": "Song found: {name} — {artist}",
+    "Nombre: {name}\nArtista: {artist}\nDuración: {duration}\nEnlace: {link}": (
+        "Name: {name}\nArtist: {artist}\nDuration: {duration}\nLink: {link}"
+    ),
+    "No se pudo buscar la canción: {error}": "Could not search for the song: {error}",
+    "No se encontró la canción en internet": "The song was not found online",
+    "Búsqueda de canción": "Song search",
+    "Descargando «{name}» en {folder}…": "Downloading “{name}” to {folder}…",
+    "Canción descargada": "Song downloaded",
+    "Canción descargada: {path}": "Song downloaded: {path}",
+    "Falta yt-dlp: instálalo para descargar canciones automáticamente.": (
+        "yt-dlp is missing: install it to download songs automatically."
+    ),
+    "No se pudo descargar la canción: {error}": "Could not download the song: {error}",
+    "No se encontró el archivo descargado": "The downloaded file was not found",
+    "Descarga fallida": "Download failed",
+    "Abrir PyAmp": "Open PyAmp",
+    "Más escuchadas": "Most played",
+    "Búsquedas": "Searches",
+    "Canciones buscadas:": "Searched songs:",
+    "Todavía no hay canciones buscadas.": "No searched songs yet.",
+    "Artista: {artist}": "Artist: {artist}",
+    "Duración: {duration}": "Duration: {duration}",
+    "Enlace: {link}": "Link: {link}",
+    "Enlace: —": "Link: —",
+    "Eliminar esta búsqueda": "Delete this search",
+    "Descargar esta canción": "Download this song",
+    "Búsqueda eliminada": "Search deleted",
+    "La búsqueda ya no existía": "The search no longer existed",
+    "No se pudo eliminar la búsqueda: {error}": "Could not delete the search: {error}",
+    "2 zonas (actual)": "2 zones (current)",
+    "1 zona": "1 zone",
+    "Forma del espectrograma: dos zonas o una sola": ("Spectrum shape: two zones or just one"),
+    "Tipo de espectrograma:": "Spectrum type:",
+    "¿Quieres eliminar el archivo «{name}»?": "Do you want to delete the file “{name}”?",
+    "No se pudo eliminar el archivo: {error}": "Could not delete the file: {error}",
+    "Archivo de lista eliminado: {name}": "Playlist file deleted: {name}",
 }
 
 #: Traducciones al italiano (misma clave: la cadena española).
@@ -838,6 +893,61 @@ _IT: dict[str, str] = {
         "L'installazione automatica è disponibile solo nell'app pacchettizzata."
     ),
     "Sistema operativo no compatible.": "Sistema operativo non supportato.",
+    # ------------------------------------------- 0.2.3: radio/búsquedas/historial
+    "Buscar en internet la canción que suena en la radio": (
+        "Cerca su internet la canzone che suona alla radio"
+    ),
+    "Buscar canción de la radio": "Cerca canzone della radio",
+    "Esta función solo está disponible mientras suena la radio": (
+        "Questa funzione è disponibile solo mentre suona la radio"
+    ),
+    "La emisora no está informando del nombre de la canción": (
+        "La stazione non sta comunicando il nome della canzone"
+    ),
+    "Sin información de la canción": "Nessuna informazione sulla canzone",
+    "Esta emisora no envía el nombre de la canción que está sonando.": (
+        "Questa stazione non invia il nome della canzone in riproduzione."
+    ),
+    "Buscando «{term}» en internet…": "Ricerca di «{term}» su internet…",
+    "Identificando la canción de la radio…": "Identificazione della canzone radio…",
+    "Canción encontrada": "Canzone trovata",
+    "Canción encontrada: {name} — {artist}": "Canzone trovata: {name} — {artist}",
+    "Nombre: {name}\nArtista: {artist}\nDuración: {duration}\nEnlace: {link}": (
+        "Nome: {name}\nArtista: {artist}\nDurata: {duration}\nLink: {link}"
+    ),
+    "No se pudo buscar la canción: {error}": "Impossibile cercare la canzone: {error}",
+    "No se encontró la canción en internet": "La canzone non è stata trovata su internet",
+    "Búsqueda de canción": "Ricerca canzone",
+    "Descargando «{name}» en {folder}…": "Download di «{name}» in {folder}…",
+    "Canción descargada": "Canzone scaricata",
+    "Canción descargada: {path}": "Canzone scaricata: {path}",
+    "Falta yt-dlp: instálalo para descargar canciones automáticamente.": (
+        "Manca yt-dlp: installalo per scaricare le canzoni automaticamente."
+    ),
+    "No se pudo descargar la canción: {error}": "Impossibile scaricare la canzone: {error}",
+    "No se encontró el archivo descargado": "Il file scaricato non è stato trovato",
+    "Descarga fallida": "Download fallito",
+    "Abrir PyAmp": "Apri PyAmp",
+    "Más escuchadas": "Più ascoltate",
+    "Búsquedas": "Ricerche",
+    "Canciones buscadas:": "Canzoni cercate:",
+    "Todavía no hay canciones buscadas.": "Non ci sono ancora canzoni cercate.",
+    "Artista: {artist}": "Artista: {artist}",
+    "Duración: {duration}": "Durata: {duration}",
+    "Enlace: {link}": "Link: {link}",
+    "Enlace: —": "Link: —",
+    "Eliminar esta búsqueda": "Elimina questa ricerca",
+    "Descargar esta canción": "Scarica questa canzone",
+    "Búsqueda eliminada": "Ricerca eliminata",
+    "La búsqueda ya no existía": "La ricerca non esisteva più",
+    "No se pudo eliminar la búsqueda: {error}": "Impossibile eliminare la ricerca: {error}",
+    "2 zonas (actual)": "2 zone (attuale)",
+    "1 zona": "1 zona",
+    "Forma del espectrograma: dos zonas o una sola": ("Forma dello spettro: due zone o una sola"),
+    "Tipo de espectrograma:": "Tipo di spettro:",
+    "¿Quieres eliminar el archivo «{name}»?": "Vuoi eliminare il file «{name}»?",
+    "No se pudo eliminar el archivo: {error}": "Impossibile eliminare il file: {error}",
+    "Archivo de lista eliminado: {name}": "File della playlist eliminato: {name}",
 }
 
 #: Traducciones al árabe (misma clave: la cadena española).
@@ -1228,6 +1338,59 @@ _AR: dict[str, str] = {
         "التثبيت التلقائي متاح فقط في التطبيق المعبّأ."
     ),
     "Sistema operativo no compatible.": "نظام التشغيل غير مدعوم.",
+    # ------------------------------------------- 0.2.3: radio/búsquedas/historial
+    "Buscar en internet la canción que suena en la radio": (
+        "ابحث في الإنترنت عن الأغنية التي تُبث على الراديو"
+    ),
+    "Buscar canción de la radio": "ابحث عن أغنية الراديو",
+    "Esta función solo está disponible mientras suena la radio": (
+        "هذه الميزة متاحة فقط أثناء تشغيل الراديو"
+    ),
+    "La emisora no está informando del nombre de la canción": ("المحطة لا تُرسل اسم الأغنية"),
+    "Sin información de la canción": "لا توجد معلومات عن الأغنية",
+    "Esta emisora no envía el nombre de la canción que está sonando.": (
+        "هذه المحطة لا ترسل اسم الأغنية التي تُبث حالياً."
+    ),
+    "Buscando «{term}» en internet…": "جارٍ البحث عن «{term}» في الإنترنت…",
+    "Identificando la canción de la radio…": "جارٍ التعرّف على أغنية الراديو…",
+    "Canción encontrada": "تم العثور على الأغنية",
+    "Canción encontrada: {name} — {artist}": "تم العثور على الأغنية: {name} — {artist}",
+    "Nombre: {name}\nArtista: {artist}\nDuración: {duration}\nEnlace: {link}": (
+        "الاسم: {name}\nالفنان: {artist}\nالمدة: {duration}\nالرابط: {link}"
+    ),
+    "No se pudo buscar la canción: {error}": "تعذّر البحث عن الأغنية: {error}",
+    "No se encontró la canción en internet": "لم يتم العثور على الأغنية في الإنترنت",
+    "Búsqueda de canción": "البحث عن أغنية",
+    "Descargando «{name}» en {folder}…": "جارٍ تنزيل «{name}» إلى {folder}…",
+    "Canción descargada": "تم تنزيل الأغنية",
+    "Canción descargada: {path}": "تم تنزيل الأغنية: {path}",
+    "Falta yt-dlp: instálalo para descargar canciones automáticamente.": (
+        "yt-dlp غير مثبّت: ثبّته لتنزيل الأغاني تلقائياً."
+    ),
+    "No se pudo descargar la canción: {error}": "تعذّر تنزيل الأغنية: {error}",
+    "No se encontró el archivo descargado": "لم يتم العثور على الملف الذي تم تنزيله",
+    "Descarga fallida": "فشل التنزيل",
+    "Abrir PyAmp": "فتح PyAmp",
+    "Más escuchadas": "الأكثر استماعاً",
+    "Búsquedas": "عمليات البحث",
+    "Canciones buscadas:": "الأغاني التي تم البحث عنها:",
+    "Todavía no hay canciones buscadas.": "لا توجد أغانٍ تم البحث عنها بعد.",
+    "Artista: {artist}": "الفنان: {artist}",
+    "Duración: {duration}": "المدة: {duration}",
+    "Enlace: {link}": "الرابط: {link}",
+    "Enlace: —": "الرابط: —",
+    "Eliminar esta búsqueda": "حذف هذا البحث",
+    "Descargar esta canción": "تنزيل هذه الأغنية",
+    "Búsqueda eliminada": "تم حذف البحث",
+    "La búsqueda ya no existía": "البحث لم يعد موجوداً",
+    "No se pudo eliminar la búsqueda: {error}": "تعذّر حذف البحث: {error}",
+    "2 zonas (actual)": "منطقتان (الحالي)",
+    "1 zona": "منطقة واحدة",
+    "Forma del espectrograma: dos zonas o una sola": ("شكل الطيف: منطقتان أو منطقة واحدة"),
+    "Tipo de espectrograma:": "نوع الطيف:",
+    "¿Quieres eliminar el archivo «{name}»?": "هل تريد حذف الملف «{name}»؟",
+    "No se pudo eliminar el archivo: {error}": "تعذّر حذف الملف: {error}",
+    "Archivo de lista eliminado: {name}": "تم حذف ملف قائمة التشغيل: {name}",
 }
 
 #: Traducciones por código de idioma.

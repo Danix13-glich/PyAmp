@@ -57,6 +57,7 @@ class SpectrumWidget(QWidget):
         self._bars = np.zeros(BAR_COUNT, dtype=np.float32)
         self._pending: np.ndarray | None = None
         self._playing = False
+        self._zones = 2
         self._hue = BAR_HUE
         self._bg_color = QColor(DEFAULT_BG)
         self._line_color = QColor(DEFAULT_LINE)
@@ -107,6 +108,14 @@ class SpectrumWidget(QWidget):
         if line_color.isValid():
             self._line_color = line_color
         self.update()
+
+    def set_zones(self, zones: int) -> None:
+        self._zones = 1 if int(zones) == 1 else 2
+        self.update()
+
+    @property
+    def zones(self) -> int:
+        return self._zones
 
     @property
     def available(self) -> bool | None:
@@ -161,8 +170,11 @@ class SpectrumWidget(QWidget):
         gap = 2
         width = rect.width()
         height = rect.height()
-        mid = height // 2  # línea central: cada barra crece hacia arriba y abajo
-        max_half = max(1, (height - 4) // 2)  # altura máxima = alto completo
+        dual = self._zones == 2
+        # Con dos zonas cada barra crece hacia arriba y hacia abajo desde la
+        # línea central. Con una zona crece desde la base inferior.
+        mid = height // 2 if dual else height - 2
+        max_half = max(1, (height - 4) // 2) if dual else max(1, height - 4)
         # Reparto que ocupa todo el ancho: sin franja vacía en el extremo derecho.
         bar_width = max(1, (width - gap * (BAR_COUNT - 1)) // BAR_COUNT)
         used = bar_width * BAR_COUNT + gap * (BAR_COUNT - 1)
@@ -174,7 +186,11 @@ class SpectrumWidget(QWidget):
             x = offset + index * (bar_width + gap)
             # Tono del tema, más brillante cuanto más fuerte es el nivel.
             color = QColor.fromHsv(self._hue, 190, 150 + int(105 * float(level)))
-            painter.fillRect(x, mid - half, bar_width, half * 2, color)
+            if dual:
+                painter.fillRect(x, mid - half, bar_width, half * 2, color)
+            else:
+                painter.fillRect(x, mid - half, bar_width, half, color)
         painter.setPen(self._line_color)
-        painter.drawLine(0, mid, width, mid)  # línea divisoria en la mitad
+        # Línea central (dos zonas) o línea base (una zona).
+        painter.drawLine(0, mid, width, mid)
         painter.end()

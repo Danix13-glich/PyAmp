@@ -280,7 +280,7 @@ def test_migration_v1_to_v2_adds_favorite_column(tmp_path: Path) -> None:
     database = LibraryDatabase(path)
     try:
         row = database.connection.execute("PRAGMA user_version").fetchone()
-        assert row is not None and row[0] == SCHEMA_VERSION == 4
+        assert row is not None and row[0] == SCHEMA_VERSION == 5
         columns = {r["name"] for r in database.connection.execute("PRAGMA table_info(tracks)")}
         assert "is_favorite" in columns
         assert "is_hidden" in columns
@@ -291,8 +291,38 @@ def test_migration_v1_to_v2_adds_favorite_column(tmp_path: Path) -> None:
             )
         }
         assert "play_history" in tables
+        assert "search_history" in tables
     finally:
         database.close()
+
+
+def test_search_history_lifecycle_and_reset(db: LibraryDatabase) -> None:
+    first = db.record_search(
+        title="Uno",
+        artist="Artista A",
+        duration_ms=180000,
+        link="https://example.com/uno",
+        preview_url="https://example.com/uno.m4a",
+        query="Artista A Uno",
+    )
+    second = db.record_search(
+        title="Dos",
+        artist="Artista B",
+        duration_ms=200000,
+        link="https://example.com/dos",
+    )
+
+    assert first > 0 and second > first
+    entries = db.search_history()
+    assert [entry["title"] for entry in entries] == ["Dos", "Uno"]
+    assert entries[0]["duration_ms"] == 200000
+    assert entries[1]["preview_url"] == "https://example.com/uno.m4a"
+
+    assert db.delete_search(first) is True
+    assert [entry["title"] for entry in db.search_history()] == ["Dos"]
+
+    db.reset()
+    assert db.search_history() == []
 
 
 def test_toggle_favorite_lifecycle(db: LibraryDatabase) -> None:

@@ -29,7 +29,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
-    QPushButton,
     QSlider,
     QStackedWidget,
     QStyle,
@@ -58,6 +57,7 @@ from app.library.scanner import ScannerThread
 from app.lyrics.online import OnlineLyricsWorker
 from app.notifications.notifier import Notifier
 from app.radio import RadioLibrary, RadioSearchWorker
+from app.radio.song_search import SongDownloadWorker, SongResult, SongSearchWorker
 from app.themes import (
     DEFAULT_THEME_ID,
     Theme,
@@ -203,6 +203,8 @@ class MainWindow(QMainWindow):
         self._lyrics_pending: Track | None = None
         self._radio_station: RadioStation | None = None
         self._radio_search: RadioSearchWorker | None = None
+        self._radio_song_search: SongSearchWorker | None = None
+        self._download_workers: set[SongDownloadWorker] = set()
         #: True mientras la vista activa es la de radio (oculta transporte local).
         self._radio_view = False
         self._shortcut_actions: dict[str, QAction] = {}
@@ -261,6 +263,7 @@ class MainWindow(QMainWindow):
 
         # Espectrograma integrado en la cabecera (a la derecha, como Winamp).
         self._spectrum = SpectrumWidget()
+        self._spectrum.set_zones(self._settings.spectrum_zones)
         self._spectrum.setVisible(self._settings.show_spectrum)
         top_row.addWidget(self._spectrum, alignment=Qt.AlignmentFlag.AlignVCenter)
         header_v.addLayout(top_row)
@@ -313,6 +316,17 @@ class MainWindow(QMainWindow):
         ):
             transport_row.addWidget(button)
 
+        self._button_radio_song = QToolButton()
+        self._button_radio_song.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
+        )
+        self._button_radio_song.setToolTip(
+            tr("Buscar en internet la canción que suena en la radio")
+        )
+        self._button_radio_song.setAccessibleName(tr("Buscar canción de la radio"))
+        self._button_radio_song.setVisible(False)
+        transport_row.addWidget(self._button_radio_song)
+
         self._button_shuffle = QToolButton()
         # El emoji se usa como imagen: Qt no pinta el texto emoji en todos
         # los equipos (Breeze/KDE lo dejaba en blanco).
@@ -341,6 +355,28 @@ class MainWindow(QMainWindow):
         self._button_speed.setAccessibleName(tr("Velocidad de reproducción"))
         self._button_speed.clicked.connect(self._on_speed_clicked)
         transport_row.addWidget(self._button_speed)
+
+        self._button_export_favorites = QToolButton()
+        self._button_export_favorites.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowUp)
+        )
+        self._button_export_favorites.setToolTip(
+            tr("Exportar la lista de favoritos a un archivo M3U")
+        )
+        self._button_export_favorites.setAccessibleName(tr("Exportar favoritos"))
+        self._button_export_favorites.setVisible(False)
+        transport_row.addWidget(self._button_export_favorites)
+
+        self._button_import_favorites = QToolButton()
+        self._button_import_favorites.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
+        )
+        self._button_import_favorites.setToolTip(
+            tr("Marcar como favoritas las canciones de un archivo M3U")
+        )
+        self._button_import_favorites.setAccessibleName(tr("Importar favoritos"))
+        self._button_import_favorites.setVisible(False)
+        transport_row.addWidget(self._button_import_favorites)
 
         transport_row.addStretch(1)
 
@@ -386,19 +422,6 @@ class MainWindow(QMainWindow):
         favorites_layout = QVBoxLayout(self._favorites_page)
         favorites_layout.setContentsMargins(0, 0, 0, 0)
         favorites_layout.setSpacing(4)
-        favorites_actions = QHBoxLayout()
-        self._button_export_favorites = QPushButton(tr("Exportar favoritos"))
-        self._button_export_favorites.setToolTip(
-            tr("Exportar la lista de favoritos a un archivo M3U")
-        )
-        self._button_import_favorites = QPushButton(tr("Importar favoritos"))
-        self._button_import_favorites.setToolTip(
-            tr("Marcar como favoritas las canciones de un archivo M3U")
-        )
-        favorites_actions.addWidget(self._button_export_favorites)
-        favorites_actions.addWidget(self._button_import_favorites)
-        favorites_actions.addStretch(1)
-        favorites_layout.addLayout(favorites_actions)
         favorites_layout.addWidget(self._favorites_table, stretch=1)
 
         self._radio = RadioLibrary(self._settings)
@@ -689,6 +712,7 @@ class MainWindow(QMainWindow):
         self._favorites_table.action_requested.connect(self._on_songs_action)
         self._button_export_favorites.clicked.connect(self._on_export_favorites)
         self._button_import_favorites.clicked.connect(self._on_import_favorites)
+        self._button_radio_song.clicked.connect(self._on_search_radio_song)
         self._radio_panel.play_requested.connect(self._on_radio_play)
         self._radio_panel.stop_requested.connect(self._on_radio_stop)
         self._radio_panel.station_selected.connect(self._on_radio_selection)
@@ -958,11 +982,7 @@ class MainWindow(QMainWindow):
                 tr("No hay canciones favoritas para exportar."),
             )
             return
-        try:
-            PLAYLISTS_DIR.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            logger.warning("No se pudo preparar la carpeta de listas: %s", exc)
-        suggested = str(PLAYLISTS_DIR / "favoritos.m3u")
+        suggested = str(Path.home() / "favoritos.m3u")
         path, _ = QFileDialog.getSaveFileName(
             self,
             tr("Exportar lista de favoritos"),
@@ -1002,7 +1022,7 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(
             self,
             tr("Importar lista de favoritos"),
-            str(PLAYLISTS_DIR),
+            str(Path.home()),
             tr("Playlists (*.m3u *.m3u8);;Todos los archivos (*)"),
         )
         if not path:
@@ -1032,7 +1052,6 @@ class MainWindow(QMainWindow):
                 tr("Importar favoritos"),
                 tr("La lista no contiene canciones."),
             )
-            return
         if missing:
             shown = "\n".join(f"• {missing_path}" for missing_path in missing[:10])
             if len(missing) > 10:
@@ -1051,6 +1070,32 @@ class MainWindow(QMainWindow):
                     missing=shown
                 ),
             )
+        self._ask_delete_imported_playlist(path)
+
+    def _ask_delete_imported_playlist(self, path: str) -> None:
+        source = Path(path)
+        answer = QMessageBox.question(
+            self,
+            tr("Importar favoritos"),
+            tr("¿Quieres eliminar el archivo «{name}»?").format(name=source.name),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        try:
+            source.unlink()
+        except OSError as exc:
+            QMessageBox.warning(
+                self,
+                tr("Importar favoritos"),
+                tr("No se pudo eliminar el archivo: {error}").format(error=exc),
+            )
+            return
+        self.statusBar().showMessage(
+            tr("Archivo de lista eliminado: {name}").format(name=source.name),
+            ERROR_TIMEOUT_MS,
+        )
 
     def _on_clear_playlist(self) -> None:
         self._player.stop()
@@ -1139,6 +1184,7 @@ class MainWindow(QMainWindow):
         self._button_prev.setEnabled(state != STATE_STOPPED)
         self._button_next.setEnabled(state != STATE_STOPPED)
         self._spectrum.set_playing(playing)
+        self._update_radio_song_button()
         if self._mpris is not None:
             self._mpris.update_playback_status()
 
@@ -1235,6 +1281,9 @@ class MainWindow(QMainWindow):
             action = self._action_view_canciones
         action.setChecked(True)
         self._update_radio_controls(mode == VIEW_RADIO)
+        favorites = mode == VIEW_FAVORITOS
+        self._button_export_favorites.setVisible(favorites)
+        self._button_import_favorites.setVisible(favorites)
         if mode == VIEW_RADIO:
             # Al entrar en Radio sin reproducción no se arrastra la canción
             # anterior: la cabecera vuelve a su estado de reposo.
@@ -1254,7 +1303,19 @@ class MainWindow(QMainWindow):
         self._button_repeat.setVisible(not radio)
         self._button_speed.setVisible(not radio)
         self._button_favorite.setVisible(not radio)
+        self._button_radio_song.setVisible(radio)
+        self._update_radio_song_button()
         self._update_time_label(self._slider_seek.value())
+
+    def _update_radio_song_button(self) -> None:
+        searching = self._radio_song_search is not None and self._radio_song_search.isRunning()
+        available = (
+            self._radio_view
+            and self._player.is_stream
+            and self._player.state != STATE_STOPPED
+            and not searching
+        )
+        self._button_radio_song.setEnabled(bool(available))
 
     def _on_radio_play(self, station: object) -> None:
         if not isinstance(station, RadioStation):
@@ -1313,6 +1374,140 @@ class MainWindow(QMainWindow):
     def _on_radio_search_finished(self) -> None:
         self._radio_panel.set_searching(False)
         self._radio_search = None
+
+    def _on_search_radio_song(self) -> None:
+        if not self._radio_view or not self._player.is_stream:
+            self.statusBar().showMessage(
+                tr("Esta función solo está disponible mientras suena la radio"),
+                ERROR_TIMEOUT_MS,
+            )
+            return
+        if self._radio_song_search is not None and self._radio_song_search.isRunning():
+            return
+        term = self._player.stream_title()
+        stream_url = ""
+        if not term:
+            current = self._player.current_track
+            stream_url = current.path if current is not None else ""
+        self._button_radio_song.setEnabled(False)
+        if term:
+            self.statusBar().showMessage(tr("Buscando «{term}» en internet…").format(term=term), 0)
+        else:
+            self.statusBar().showMessage(tr("Identificando la canción de la radio…"), 0)
+        worker = SongSearchWorker(term, self, stream_url=stream_url)
+        self._radio_song_search = worker
+        worker.found.connect(self._on_radio_song_found)
+        worker.failed.connect(self._on_radio_song_failed)
+        worker.finished.connect(self._on_radio_song_search_finished)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+
+    def _on_radio_song_found(self, result: object) -> None:
+        if not isinstance(result, SongResult):
+            return
+        try:
+            self._library.record_search(
+                title=result.title,
+                artist=result.artist,
+                duration_ms=result.duration_ms,
+                link=result.link,
+                preview_url=result.preview_url,
+                query=f"{result.artist} {result.title}".strip(),
+            )
+        except Exception as exc:  # noqa: BLE001 - la búsqueda no debe romper nada
+            logger.warning("No se pudo guardar la búsqueda: %s", exc)
+        duration = format_time(result.duration_ms) if result.duration_ms > 0 else "—"
+        body = tr("Nombre: {name}\nArtista: {artist}\nDuración: {duration}\nEnlace: {link}").format(
+            name=result.title,
+            artist=result.artist or tr("Artista desconocido"),
+            duration=duration,
+            link=result.link or "—",
+        )
+        self._notifier.notify(tr("Canción encontrada"), body)
+        self.statusBar().showMessage(
+            tr("Canción encontrada: {name} — {artist}").format(
+                name=result.title, artist=result.artist
+            ),
+            ERROR_TIMEOUT_MS,
+        )
+
+    def _on_radio_song_failed(self, message: str) -> None:
+        if message:
+            logger.info("Búsqueda de canción de radio falló: %s", message)
+            text = tr("No se pudo buscar la canción: {error}").format(error=message)
+        else:
+            text = tr("No se encontró la canción en internet")
+        self.statusBar().showMessage(text, ERROR_TIMEOUT_MS)
+        self._notifier.notify(tr("Búsqueda de canción"), text)
+
+    def _on_radio_song_search_finished(self) -> None:
+        self._radio_song_search = None
+        self._update_radio_song_button()
+
+    def _download_folder(self) -> Path:
+        for folder in reversed(self._settings.library_folders):
+            path = Path(folder).expanduser()
+            if path.is_dir():
+                return path
+        return Path.home()
+
+    def _on_download_search(self, entry: object) -> None:
+        if not isinstance(entry, dict):
+            return
+        result = SongResult(
+            title=str(entry.get("title") or ""),
+            artist=str(entry.get("artist") or ""),
+            duration_ms=int(entry.get("duration_ms") or 0),
+            link=str(entry.get("link") or ""),
+            preview_url=str(entry.get("preview_url") or ""),
+        )
+        if not result.title:
+            return
+        folder = self._download_folder()
+        self.statusBar().showMessage(
+            tr("Descargando «{name}» en {folder}…").format(name=result.title, folder=folder),
+            0,
+        )
+        worker = SongDownloadWorker(result, folder, self)
+        self._download_workers.add(worker)
+        worker.finished_ok.connect(self._on_download_finished)
+        worker.failed.connect(self._on_download_failed)
+        worker.finished.connect(lambda w=worker: self._on_download_worker_finished(w))
+        worker.start()
+
+    def _on_download_finished(self, path: str) -> None:
+        try:
+            info = read_metadata(path)
+            track = Track(
+                path=path,
+                title=info.title,
+                artist=info.artist,
+                album=info.album,
+                duration_ms=info.duration_ms,
+            )
+            self._library.upsert_track(track)
+            self._songs_table.refresh()
+            self._favorites_table.refresh()
+        except Exception as exc:  # noqa: BLE001 - el archivo ya está descargado
+            logger.warning("No se pudo añadir la descarga a la biblioteca: %s", exc)
+        self.statusBar().showMessage(
+            tr("Canción descargada: {path}").format(path=path), ERROR_TIMEOUT_MS
+        )
+        self._notifier.notify(tr("Canción descargada"), Path(path).name)
+
+    def _on_download_failed(self, message: str) -> None:
+        if message == "yt-dlp":
+            text = tr("Falta yt-dlp: instálalo para descargar canciones automáticamente.")
+        elif message == "no-file":
+            text = tr("No se encontró el archivo descargado")
+        else:
+            text = tr("No se pudo descargar la canción: {error}").format(error=message)
+        self.statusBar().showMessage(text, ERROR_TIMEOUT_MS)
+        self._notifier.notify(tr("Descarga fallida"), text)
+
+    def _on_download_worker_finished(self, worker: SongDownloadWorker) -> None:
+        self._download_workers.discard(worker)
+        worker.deleteLater()
 
     def _on_radio_selection(self, station: object) -> None:
         if isinstance(station, RadioStation):
@@ -1520,10 +1715,14 @@ class MainWindow(QMainWindow):
         QProcess.startDetached(program, args)
         QApplication.quit()
 
-    def _apply_appearance_from_dialog(self, theme_id: str, spectrum: bool, cover: bool) -> None:
+    def _apply_appearance_from_dialog(
+        self, theme_id: str, spectrum: bool, cover: bool, zones: int
+    ) -> None:
         reload_themes()
         self._populate_theme_menu()
         self._apply_theme_id(str(theme_id))
+        self._settings.spectrum_zones = zones
+        self._spectrum.set_zones(zones)
         if bool(spectrum) != self._action_show_spectrum.isChecked():
             self._action_show_spectrum.setChecked(bool(spectrum))
             self._on_toggle_spectrum(bool(spectrum))
@@ -1713,8 +1912,31 @@ class MainWindow(QMainWindow):
     def _on_show_history(self) -> None:
         ready = datetime.now().day == 1
         entries = self._library.monthly_top(previous_month_key(), 10) if ready else []
-        window = HistoryWindow(entries, ready=ready and bool(entries), parent=self)
+        searches = self._library.search_history()
+        window = HistoryWindow(
+            entries,
+            ready=ready and bool(entries),
+            searches=searches,
+            parent=self,
+        )
+        window.delete_requested.connect(self._on_history_delete_search)
+        window.download_requested.connect(self._on_download_search)
         window.exec()
+
+    def _on_history_delete_search(self, search_id: int) -> None:
+        try:
+            removed = self._library.delete_search(search_id)
+        except Exception as exc:  # noqa: BLE001 - la ventana no debe romperse
+            logger.warning("No se pudo eliminar la búsqueda: %s", exc)
+            self.statusBar().showMessage(
+                tr("No se pudo eliminar la búsqueda: {error}").format(error=exc),
+                ERROR_TIMEOUT_MS,
+            )
+            return
+        self.statusBar().showMessage(
+            tr("Búsqueda eliminada") if removed else tr("La búsqueda ya no existía"),
+            ERROR_TIMEOUT_MS,
+        )
 
     def _maybe_notify_history(self) -> None:
         # El día 1 de cada mes se avisa; al pulsar la notificación se abre el
@@ -2024,6 +2246,11 @@ class MainWindow(QMainWindow):
         ):
             self._lyrics_search.terminate()
             self._lyrics_search.wait(1000)
+        if self._radio_song_search is not None and self._radio_song_search.isRunning():
+            self._radio_song_search.wait(8000)
+        for worker in list(self._download_workers):
+            if worker.isRunning() and not worker.wait(15000):
+                logger.warning("Descarga aún en curso al cerrar; se deja terminar el proceso")
         if self._lyrics_window is not None:
             self._lyrics_window.close()
         if self._mpris is not None:

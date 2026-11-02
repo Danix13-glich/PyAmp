@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import wave
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from PySide6.QtCore import QEventLoop, QTimer
@@ -298,6 +299,62 @@ def test_vlc_end_callback_no_llama_a_vlc_reentrante() -> None:
     backend._on_end(None)  # noqa: SLF001 - test del callback
 
     assert calls == ["finished"]
+
+
+def test_vlc_set_rate_resincroniza_audio_sin_tocar_directo() -> None:
+    from app.audio.vlc_backend import VlcBackend
+
+    class _Player:
+        def __init__(self, state: str) -> None:
+            self.state = state
+            self.calls: list[tuple[str, float | int | None]] = []
+
+        def get_state(self) -> str:
+            return self.state
+
+        def get_time(self) -> int:
+            self.calls.append(("get_time", None))
+            return 12345
+
+        def set_rate(self, rate: float) -> None:
+            self.calls.append(("rate", rate))
+
+        def set_time(self, position: int) -> None:
+            self.calls.append(("time", position))
+
+    class _Analyzer(_Player):
+        pass
+
+    backend = VlcBackend.__new__(VlcBackend)
+    backend._vlc = SimpleNamespace(State=SimpleNamespace(Playing="playing"))  # noqa: SLF001
+    backend._audio_dirty = False  # noqa: SLF001
+    backend._is_stream = False  # noqa: SLF001
+
+    player = _Player("playing")
+    analyzer = _Analyzer("playing")
+    backend._player = player  # noqa: SLF001
+    backend._analyzer = analyzer  # noqa: SLF001
+
+    backend.set_rate(1.5)
+
+    assert player.calls == [("get_time", None), ("rate", 1.5), ("time", 12345)]
+    assert analyzer.calls == [("rate", 1.5), ("time", 12345)]
+    assert backend._audio_dirty is True  # noqa: SLF001
+
+    # En directo no se busca una posición fija.
+    stream_player = _Player("playing")
+    backend._player = stream_player  # noqa: SLF001
+    backend._analyzer = None  # noqa: SLF001
+    backend._is_stream = True  # noqa: SLF001
+    backend.set_rate(2.0)
+    assert stream_player.calls == [("rate", 2.0)]
+
+    # En pausa solo se cambia la velocidad; no se reposiciona.
+    paused_player = _Player("paused")
+    backend._player = paused_player  # noqa: SLF001
+    backend._is_stream = False  # noqa: SLF001
+    backend.set_rate(1.0)
+    assert paused_player.calls == [("rate", 1.0)]
 
 
 def test_last_playback_roundtrip(tmp_path: Path) -> None:

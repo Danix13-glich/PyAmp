@@ -13,6 +13,16 @@ _SRC_DIR = Path(__file__).resolve().parent / "src"
 if str(_SRC_DIR) not in sys.path:
     sys.path.insert(0, str(_SRC_DIR))
 
+
+def _run_reset_notification_helper() -> int:
+    from app.notifications.reset_helper import run_reset_notification_helper
+
+    return run_reset_notification_helper(sys.argv)
+
+
+if "--notify-reset-helper" in sys.argv:
+    raise SystemExit(_run_reset_notification_helper())
+
 # Antes de importar PySide6/vlc: si a este equipo le faltan paquetes, se
 # instalan solos en un entorno local y la app se reinicia una vez.
 from app.utils.deps import ensure_dependencies  # noqa: E402

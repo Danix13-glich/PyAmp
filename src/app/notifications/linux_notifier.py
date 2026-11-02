@@ -54,6 +54,7 @@ class LinuxNotifier:
         self._ids: list[int] = []  # solo se toca desde el hilo del loop
         self._action_installed = False
         self._pending_actions: dict[int, Callable[[], None]] = {}
+        self._pending_closed: dict[int, Callable[[], None]] = {}
 
     # ------------------------------------------------------------------ API
     def notify(
@@ -80,6 +81,7 @@ class LinuxNotifier:
         on_action: Callable[[], None] | None = None,
         timeout_ms: int = 0,
         image_path: str | None = None,
+        on_closed: Callable[[], None] | None = None,
     ) -> None:
         # Notificación con acción: al pulsarla llega ActionInvoked → se ejecuta
         # `on_action` (marshaling fuera del hilo de UI: el receptor usa señales).
@@ -93,6 +95,7 @@ class LinuxNotifier:
                 image_path,
                 actions=["default", action_label],
                 on_action=on_action,
+                on_closed=on_closed,
             ),
             loop,
         )
@@ -132,6 +135,7 @@ class LinuxNotifier:
         image_path: str | None,
         actions: list[str] | None = None,
         on_action: Callable[[], None] | None = None,
+        on_closed: Callable[[], None] | None = None,
     ) -> None:
         hints: dict[str, Variant] = {
             # Silenciosa: nunca reproduce sonido propio.
@@ -173,6 +177,8 @@ class LinuxNotifier:
             self._ids.append(notification_id)
             if actions and on_action is not None:
                 self._pending_actions[notification_id] = on_action
+            if actions and on_closed is not None:
+                self._pending_closed[notification_id] = on_closed
 
     def _install_action_handler(self, bus: Any) -> None:
         if self._action_installed:
@@ -181,21 +187,28 @@ class LinuxNotifier:
         self._action_installed = True
 
     def _on_message(self, message: Any) -> bool:
-        # Escucha ActionInvoked y dispara el callback de la notificación.
+        # Escucha ActionInvoked/NotificationClosed y dispara el callback.
         if message.message_type != MessageType.SIGNAL:
             return False
-        if message.interface != INTERFACE or message.member != "ActionInvoked":
+        if message.interface != INTERFACE or message.member not in {
+            "ActionInvoked",
+            "NotificationClosed",
+        }:
             return False
         try:
             notification_id = int(message.body[0])
         except (IndexError, TypeError, ValueError):
             return False
         callback = self._pending_actions.pop(notification_id, None)
-        if callback is not None:
-            try:
-                callback()
-            except Exception as exc:  # noqa: BLE001 - una acción no debe romper nada
-                logger.warning("Acción de notificación falló: %s", exc)
+        closed_callback = self._pending_closed.pop(notification_id, None)
+        try:
+            if message.member == "ActionInvoked":
+                if callback is not None:
+                    callback()
+            elif closed_callback is not None:
+                closed_callback()
+        except Exception as exc:  # noqa: BLE001 - una acción no debe romper nada
+            logger.warning("Acción de notificación falló: %s", exc)
         return False
 
     async def _close_all_async(self) -> None:

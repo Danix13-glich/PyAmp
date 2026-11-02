@@ -12,7 +12,7 @@ from .models import Album, Artist, Track
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 _SCHEMA_V1 = """
 CREATE TABLE IF NOT EXISTS artists (
@@ -140,6 +140,25 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("PRAGMA user_version = 4")
         conn.commit()
         logger.info("Biblioteca migrada a esquema v4 (historial mensual)")
+        version = 4
+
+    if version < 5:
+        # Canciones identificadas desde la radio y guardadas en el historial.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS search_history (
+                id INTEGER PRIMARY KEY,
+                title TEXT NOT NULL,
+                artist TEXT NOT NULL DEFAULT '',
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                link TEXT NOT NULL DEFAULT '',
+                preview_url TEXT NOT NULL DEFAULT '',
+                query TEXT NOT NULL DEFAULT '',
+                searched_at TEXT NOT NULL
+            )
+            """)
+        conn.execute("PRAGMA user_version = 5")
+        conn.commit()
+        logger.info("Biblioteca migrada a esquema v5 (búsquedas de radio)")
 
 
 def ensure_schema(conn: sqlite3.Connection) -> None:
@@ -332,6 +351,64 @@ def monthly_top(conn: sqlite3.Connection, month: str, limit: int = 10) -> list[d
     ]
 
 
+def record_search(
+    conn: sqlite3.Connection,
+    *,
+    title: str,
+    artist: str,
+    duration_ms: int,
+    link: str,
+    preview_url: str = "",
+    query: str = "",
+) -> int:
+    cursor = conn.execute(
+        """INSERT INTO search_history
+           (title, artist, duration_ms, link, preview_url, query, searched_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            str(title).strip(),
+            str(artist).strip(),
+            max(0, int(duration_ms)),
+            str(link).strip(),
+            str(preview_url).strip(),
+            str(query).strip(),
+            now_iso(),
+        ),
+    )
+    conn.commit()
+    logger.info("Búsqueda guardada: %s — %s", title, artist)
+    return int(cursor.lastrowid or 0)
+
+
+def search_history(conn: sqlite3.Connection, limit: int = 500) -> list[dict[str, object]]:
+    rows = conn.execute(
+        """SELECT id, title, artist, duration_ms, link, preview_url, query, searched_at
+           FROM search_history
+           ORDER BY id DESC
+           LIMIT ?""",
+        (max(1, int(limit)),),
+    ).fetchall()
+    return [
+        {
+            "id": int(row["id"]),
+            "title": str(row["title"]),
+            "artist": str(row["artist"]),
+            "duration_ms": int(row["duration_ms"]),
+            "link": str(row["link"]),
+            "preview_url": str(row["preview_url"]),
+            "query": str(row["query"]),
+            "searched_at": str(row["searched_at"]),
+        }
+        for row in rows
+    ]
+
+
+def delete_search(conn: sqlite3.Connection, search_id: int) -> bool:
+    cursor = conn.execute("DELETE FROM search_history WHERE id = ?", (int(search_id),))
+    conn.commit()
+    return cursor.rowcount > 0
+
+
 def toggle_favorite(conn: sqlite3.Connection, path: str) -> bool:
     row = conn.execute("SELECT is_favorite FROM tracks WHERE path = ?", (path,)).fetchone()
     if row is None:
@@ -414,6 +491,7 @@ def reset_library(conn: sqlite3.Connection) -> None:
         conn.execute("DELETE FROM playlist_tracks")
         conn.execute("DELETE FROM playlists")
         conn.execute("DELETE FROM play_history")
+        conn.execute("DELETE FROM search_history")
         conn.execute("DELETE FROM tracks")
         conn.execute("DELETE FROM albums")
         conn.execute("DELETE FROM artists")
@@ -495,6 +573,32 @@ class LibraryDatabase:
 
     def monthly_top(self, month: str, limit: int = 10) -> list[dict[str, object]]:
         return monthly_top(self._conn, month, limit)
+
+    def record_search(
+        self,
+        *,
+        title: str,
+        artist: str,
+        duration_ms: int,
+        link: str,
+        preview_url: str = "",
+        query: str = "",
+    ) -> int:
+        return record_search(
+            self._conn,
+            title=title,
+            artist=artist,
+            duration_ms=duration_ms,
+            link=link,
+            preview_url=preview_url,
+            query=query,
+        )
+
+    def search_history(self, limit: int = 500) -> list[dict[str, object]]:
+        return search_history(self._conn, limit)
+
+    def delete_search(self, search_id: int) -> bool:
+        return delete_search(self._conn, search_id)
 
     def toggle_favorite(self, path: str) -> bool:
         return toggle_favorite(self._conn, path)

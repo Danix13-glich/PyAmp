@@ -469,6 +469,17 @@ def test_spectrum_widget_is_compact_and_blue_bars(qapp: QApplication) -> None:
     assert widget.width() == 120  # ancho fijo (no colapsa en filas horizontales)
 
 
+def test_spectrum_widget_supports_one_or_two_zones(qapp: QApplication) -> None:
+    widget = SpectrumWidget()
+    assert widget.zones == 2
+    widget.set_zones(1)
+    assert widget.zones == 1
+    assert not widget.grab().isNull()
+    widget.set_zones(2)
+    assert widget.zones == 2
+    assert not widget.grab().isNull()
+
+
 # ------------------------------------------------------------- letras
 def test_parse_lrc_extracts_and_sorts_entries() -> None:
     text = "\n".join(
@@ -866,17 +877,21 @@ def test_settings_dialog_emits_appearance(qapp: QApplication) -> None:
         notifier_backend="test-backend",
         version="0.1.6",
     )
-    received: list[tuple[str, bool, bool]] = []
-    dialog.apply_appearance.connect(lambda t, s, c: received.append((t, s, c)))
+    received: list[tuple[str, bool, bool, int]] = []
+    dialog.apply_appearance.connect(lambda t, s, c, z: received.append((t, s, c, z)))
 
     dialog._combo_theme.setCurrentIndex(1)  # noqa: SLF001 - tests
     dialog._check_spectrum.setChecked(False)  # noqa: SLF001 - tests
+    dialog._combo_spectrum_zones.setCurrentIndex(  # noqa: SLF001 - tests
+        dialog._combo_spectrum_zones.findData(1)  # noqa: SLF001 - tests
+    )
     dialog._on_accepted()  # noqa: SLF001 - tests
 
     assert len(received) == 1
-    theme_id, spectrum, _cover = received[0]
+    theme_id, spectrum, _cover, zones = received[0]
     assert theme_id == dialog._combo_theme.currentData()  # noqa: SLF001 - tests
     assert spectrum is False
+    assert zones == 1
 
 
 # ------------------------------------------- vista Favoritos (Ctrl+3)

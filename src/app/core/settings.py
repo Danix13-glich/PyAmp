@@ -23,6 +23,7 @@ KEY_WINDOW_WIDTH = "window/default_width"
 KEY_WINDOW_HEIGHT = "window/default_height"
 KEY_VIEW_MODE = "ui/view_mode"
 KEY_SHOW_SPECTRUM = "ui/show_spectrum"
+KEY_SPECTRUM_ZONES = "ui/spectrum_zones"
 KEY_SHOW_COVER = "ui/show_cover"
 KEY_SHOW_HIDDEN = "ui/show_hidden"
 KEY_THEME = "ui/theme"
@@ -292,6 +293,18 @@ class Settings:
     @show_spectrum.setter
     def show_spectrum(self, value: bool) -> None:
         self.set_value(KEY_SHOW_SPECTRUM, bool(value))
+
+    @property
+    def spectrum_zones(self) -> int:
+        try:
+            value = int(self._raw(KEY_SPECTRUM_ZONES, 2))
+        except (TypeError, ValueError):
+            value = 2
+        return 1 if value == 1 else 2
+
+    @spectrum_zones.setter
+    def spectrum_zones(self, value: int) -> None:
+        self.set_value(KEY_SPECTRUM_ZONES, 1 if int(value) == 1 else 2)
 
     @property
     def show_cover(self) -> bool:
