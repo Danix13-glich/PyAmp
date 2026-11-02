@@ -87,6 +87,57 @@ def fetch_icy_title(url: str) -> str:
     return ""
 
 
+def find_youtube_url(query: str) -> str:
+    text = str(query).strip()
+    if not text:
+        return ""
+    executable = shutil.which("yt-dlp")
+    if executable:
+        command = [
+            executable,
+            "--flat-playlist",
+            "--quiet",
+            "--no-warnings",
+            "--print",
+            "%(webpage_url)s",
+            f"ytsearch1:{text}",
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            if completed.returncode == 0:
+                for line in reversed(completed.stdout.splitlines()):
+                    url = line.strip()
+                    if url.startswith(("https://www.youtube.com/", "https://youtu.be/")):
+                        return url
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            logger.info("Búsqueda en YouTube con yt-dlp falló para %r: %s", text, exc)
+    params = urllib.parse.urlencode({"search_query": text})
+    search_url = f"https://www.youtube.com/results?{params}"
+    try:
+        request = urllib.request.Request(
+            search_url,
+            headers={
+                "User-Agent": USER_AGENT,
+                "Accept": "text/html",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=NETWORK_TIMEOUT_S) as response:
+            page = response.read(2_000_000).decode("utf-8", errors="replace")
+        match = re.search(r'"videoId":"([A-Za-z0-9_-]{11})"', page)
+        if match:
+            return f"https://www.youtube.com/watch?v={match.group(1)}"
+    except Exception as exc:  # noqa: BLE001 - YouTube puede cambiar su HTML
+        logger.info("Búsqueda directa en YouTube falló para %r: %s", text, exc)
+    return search_url
+
+
 def _first_itunes(payload: object) -> SongResult | None:
     if not isinstance(payload, dict):
         return None
@@ -141,18 +192,27 @@ def search_online_song(term: str) -> SongResult | None:
     itunes_params = urllib.parse.urlencode(
         {"term": query, "media": "music", "entity": "song", "limit": "5"}
     )
+    result: SongResult | None = None
     try:
         result = _first_itunes(_get_json(f"{ITUNES_URL}?{itunes_params}"))
-        if result is not None:
-            return result
     except Exception as exc:  # noqa: BLE001 - se prueba el siguiente servicio
         logger.info("Búsqueda iTunes falló para %r: %s", query, exc)
-    deezer_params = urllib.parse.urlencode({"q": query, "limit": "5"})
-    try:
-        return _first_deezer(_get_json(f"{DEEZER_URL}?{deezer_params}"))
-    except Exception as exc:  # noqa: BLE001 - la red nunca debe tumbar la app
-        logger.info("Búsqueda Deezer falló para %r: %s", query, exc)
-    return None
+    if result is None:
+        deezer_params = urllib.parse.urlencode({"q": query, "limit": "5"})
+        try:
+            result = _first_deezer(_get_json(f"{DEEZER_URL}?{deezer_params}"))
+        except Exception as exc:  # noqa: BLE001 - la red nunca debe tumbar la app
+            logger.info("Búsqueda Deezer falló para %r: %s", query, exc)
+    if result is None:
+        return None
+    youtube_url = find_youtube_url(f"{result.artist} {result.title}")
+    return SongResult(
+        result.title,
+        result.artist,
+        result.duration_ms,
+        youtube_url,
+        result.preview_url,
+    )
 
 
 class SongSearchWorker(QThread):

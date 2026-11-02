@@ -83,3 +83,22 @@ def test_history_window_searches_tab_allows_delete() -> None:
     assert "Todavía no hay canciones buscadas." in " ".join(
         label.text() for label in window.findChildren(QLabel)
     )
+
+
+def test_history_window_convierte_enlaces_antiguos_de_apple_a_youtube() -> None:
+    _qapp()
+    window = HistoryWindow(
+        [],
+        searches=[
+            {
+                "id": 9,
+                "title": "Canción",
+                "artist": "Artista",
+                "duration_ms": 1000,
+                "link": "https://music.apple.com/es/album/cancion",
+            }
+        ],
+    )
+    texts = " ".join(label.text() for label in window.findChildren(QLabel))
+    assert "youtube.com/results" in texts
+    assert "music.apple.com" not in texts

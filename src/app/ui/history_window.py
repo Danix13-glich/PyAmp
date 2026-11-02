@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import urllib.parse
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -48,6 +49,19 @@ def _entry_int(entry: dict[str, object], key: str) -> int:
         except (TypeError, ValueError):
             return 0
     return 0
+
+
+def _youtube_link(entry: dict[str, object]) -> str:
+    link = str(entry.get("link") or "").strip()
+    if link and "music.apple.com" not in link and "deezer.com" not in link:
+        return link
+    title = str(entry.get("title") or "").strip()
+    artist = str(entry.get("artist") or "").strip()
+    query = f"{artist} {title}".strip()
+    if not query:
+        return link
+    params = urllib.parse.urlencode({"search_query": query})
+    return f"https://www.youtube.com/results?{params}"
 
 
 class HistoryWindow(QDialog):
@@ -164,7 +178,7 @@ class HistoryWindow(QDialog):
         title = str(entry.get("title") or tr("Sin título"))
         artist = str(entry.get("artist") or tr("Artista desconocido"))
         duration_ms = _entry_int(entry, "duration_ms")
-        link = str(entry.get("link") or "")
+        link = _youtube_link(entry)
 
         name_label = QLabel(title)
         name_font = name_label.font()
