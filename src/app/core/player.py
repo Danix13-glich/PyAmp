@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import random
+import time
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QTimer, Signal
@@ -29,6 +30,15 @@ POLL_INTERVAL_MS = 250
 #: Pequeña espera tras "fin de pista" antes de avanzar (VLC termina su
 #: limpieza interna en su propio hilo).
 AUTO_ADVANCE_DELAY_MS = 100
+#: Una radio que deja de estar en estado "Playing" durante este tiempo se
+#: vuelve a cargar automáticamente (cortes de red, buffering eterno...).
+STREAM_STALL_TICKS = 40
+#: Si el reloj del directo deja de avanzar este tiempo, aunque VLC siga
+#: diciendo "Playing", también se reconecta (audio congelado por la red).
+STREAM_POSITION_STALL_S = 12.0
+#: Espera mínima entre reconexiones para no saturar la emisora.
+STREAM_RECONNECT_COOLDOWN_S = 5.0
+
 #: Margen para que VLC tenga la pista cargada antes de aplicar la posición
 #: guardada al reabrir la app. Un seek demasiado pronto cae en otra posición.
 RESUME_SEEK_DELAY_MS = 900
@@ -72,6 +82,10 @@ class Player(QObject):
     spectrum_samples = Signal(object)
     #: El repetir se consumió (la pista actual se repitió una vez y se apagó).
     repeat_consumed = Signal()
+    #: Se está reconectando una emisora de radio (nombre de la emisora).
+    stream_reconnecting = Signal(str)
+    #: La emisora volvió a sonar tras una reconexión.
+    stream_reconnected = Signal(str)
 
     # Señales internas: marshaling desde el hilo de VLC al hilo de UI.
     _backend_finished = Signal()
@@ -99,6 +113,12 @@ class Player(QObject):
         self._resume_attempts = 0
         self._seek_target_ms: int | None = None
         self._seek_attempts = 0
+        self._audio_route_ticks = 0
+        self._stream_stall_ticks = 0
+        self._stream_last_reconnect = 0.0
+        self._stream_reconnect_attempts = 0
+        self._stream_last_position = 0
+        self._stream_position_updated = 0.0
 
         # NB: `_audio_error_msg` NO se llama `_backend_error` para no pisar
         # la señal Qt `_backend_error`.
@@ -123,6 +143,10 @@ class Player(QObject):
                 self._backend.set_spectrum_sink(self.spectrum_samples.emit)
             except Exception as exc:  # noqa: BLE001
                 logger.debug("Sin análisis de espectro: %s", exc)
+            try:
+                self._backend.set_audio_device(self._settings.audio_device)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("No se pudo aplicar la salida de audio: %s", exc)
             try:
                 self._backend.set_volume(self._settings.volume)
                 if self._settings.muted:
@@ -238,6 +262,11 @@ class Player(QObject):
         # La emisora pasa a ser la pista actual: así MPRIS, notificaciones y
         # la cabecera muestran el nombre de la radio, no la última canción.
         self._stream_track = track
+        self._stream_stall_ticks = 0
+        self._stream_last_reconnect = 0.0
+        self._stream_reconnect_attempts = 0
+        self._stream_last_position = 0
+        self._stream_position_updated = time.monotonic()
         self.clear_resume_position()
         self.clear_seek_verification()
         self._duration = 0
@@ -263,6 +292,9 @@ class Player(QObject):
             return
         if self._state == STATE_PAUSED:
             self._backend.resume()
+            self._stream_stall_ticks = 0
+            self._stream_last_position = 0
+            self._stream_position_updated = time.monotonic()
             self._set_state(STATE_PLAYING)
             self._timer.start()
             return
@@ -292,6 +324,10 @@ class Player(QObject):
             except Exception as exc:  # noqa: BLE001
                 logger.warning("stop falló: %s", exc)
         self._stream_track = None
+        self._stream_stall_ticks = 0
+        self._stream_reconnect_attempts = 0
+        self._stream_last_position = 0
+        self._stream_position_updated = 0.0
         self._timer.stop()
         self._duration = 0
         self.clear_resume_position()
@@ -567,12 +603,39 @@ class Player(QObject):
             self._state = state
             self.playback_state_changed.emit(state)
 
+    def set_audio_device(self, device: str) -> None:
+        if self._backend is not None:
+            try:
+                self._backend.set_audio_device(device)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("No se pudo cambiar la salida de audio: %s", exc)
+
+    def _backend_refresh_audio_route(self, backend: AudioBackend) -> None:
+        try:
+            backend.refresh_audio_route()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("No se pudo refrescar la salida de audio: %s", exc)
+
     def _poll(self) -> None:
         backend = self._backend
         if backend is None or self._state != STATE_PLAYING:
             self._timer.stop()
             return
-        self.position_changed.emit(backend.position_ms())
+        self._audio_route_ticks += 1
+        if self._audio_route_ticks >= 20:  # ~5 s: detectar Bluetooth nuevo
+            self._audio_route_ticks = 0
+            self._backend_refresh_audio_route(backend)
+        position = backend.position_ms()
+        if self.is_stream:
+            # Una emisora puede quedarse en Buffering/Stopped sin avisar.
+            if backend.is_playing():
+                self._stream_stall_ticks = 0
+                self._check_stream_position(position)
+            else:
+                self._stream_stall_ticks += 1
+                if self._stream_stall_ticks >= STREAM_STALL_TICKS:
+                    self._reconnect_stream()
+        self.position_changed.emit(position)
         duration = backend.duration_ms()
         if duration != self._duration:
             self._duration = duration
@@ -584,8 +647,57 @@ class Player(QObject):
     def _on_backend_error(self, message: str) -> None:
         self._backend_error.emit(message)
 
+    def _check_stream_position(self, position: int) -> None:
+        now = time.monotonic()
+        if position <= 0:
+            # Algunas emisoras no publican un reloj; no se puede usar.
+            self._stream_position_updated = now
+            return
+        if position != self._stream_last_position:
+            self._stream_last_position = position
+            self._stream_position_updated = now
+            return
+        elapsed = now - self._stream_position_updated
+        if elapsed >= STREAM_POSITION_STALL_S:
+            logger.warning(
+                "El reloj de la radio lleva %.0f s congelado en %d ms", elapsed, position
+            )
+            self._reconnect_stream()
+
     def _schedule_auto_advance(self) -> None:
+        if self.is_stream:
+            QTimer.singleShot(AUTO_ADVANCE_DELAY_MS, self._reconnect_stream)
+            return
         QTimer.singleShot(AUTO_ADVANCE_DELAY_MS, self._auto_advance)
+
+    def _reconnect_stream(self) -> None:
+        track = self._stream_track
+        backend = self._backend
+        if track is None or backend is None or self._state != STATE_PLAYING:
+            return
+        now = time.monotonic()
+        if now - self._stream_last_reconnect < STREAM_RECONNECT_COOLDOWN_S:
+            return
+        self._stream_last_reconnect = now
+        self._stream_reconnect_attempts += 1
+        self._stream_stall_ticks = 0
+        self._stream_last_position = 0
+        self._stream_position_updated = now
+        logger.warning(
+            "Reconectando radio %s (intento %d): %s",
+            track.display_name,
+            self._stream_reconnect_attempts,
+            track.path,
+        )
+        self.stream_reconnecting.emit(track.display_name)
+        try:
+            backend.load(track.path)
+            backend.play()
+            backend.set_rate(1.0)
+        except Exception as exc:  # noqa: BLE001 - la red puede fallar
+            logger.warning("Reconexión de radio falló: %s", exc)
+            return
+        self.stream_reconnected.emit(track.display_name)
 
     def _auto_advance(self) -> None:
         # Repetir = repetir la pista actual una sola vez y desactivarse.
@@ -617,7 +729,7 @@ class Player(QObject):
         return None
 
     #: Peso extra de las pistas favoritas al barajar.
-    FAVORITE_SHUFFLE_WEIGHT = 3.0
+    FAVORITE_SHUFFLE_WEIGHT = 1.0
 
     def _weighted_shuffle_index(self, current: int) -> int:
         # Cualquier índice salvo el actual; las favoritas tienen más opciones.
@@ -629,6 +741,10 @@ class Player(QObject):
         return random.choices(candidates, weights=weights, k=1)[0]
 
     def _handle_backend_error(self, message: str) -> None:
+        if self.is_stream and self._state == STATE_PLAYING:
+            logger.warning("Error en radio (%s); se reintenta la conexión", message)
+            self._reconnect_stream()
+            return
         logger.error("Backend: %s", message)
         self.error_occurred.emit(message)
 

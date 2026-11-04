@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import sys
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,7 @@ from PySide6.QtWidgets import (
 from app.core.player import STATE_PAUSED, STATE_PLAYING, STATE_STOPPED, Player
 from app.core.playlist import audio_filter_string, collect_audio_files
 from app.core.settings import (
+    MEDIA_SHORTCUT_DEFAULTS,
     SHORTCUT_DEFAULTS,
     VIEW_CANCIONES,
     VIEW_FAVORITOS,
@@ -173,6 +175,8 @@ class MainWindow(QMainWindow):
     #: Peticiones MPRIS llegadas del bus (hilo ajeno → hilo de UI).
     _raise_requested = Signal()
     _quit_requested = Signal()
+    _shuffle_requested = Signal(bool)
+    _repeat_requested = Signal(bool)
     #: Pulsar la notificación del historial (hilo D-Bus → hilo de UI).
     _history_requested = Signal()
 
@@ -201,6 +205,12 @@ class MainWindow(QMainWindow):
         self._lyrics_window: LyricsWindow | None = None
         self._lyrics_search: OnlineLyricsWorker | None = None
         self._lyrics_pending: Track | None = None
+        # Actualiza la letra aunque Qt deje de entregar position_changed al
+        # cambiar de escritorio o abrir un diálogo modal.
+        self._lyrics_sync_timer = QTimer(self)
+        self._lyrics_sync_timer.setInterval(250)
+        self._lyrics_sync_timer.timeout.connect(self._sync_lyrics_position)
+        self._lyrics_sync_timer.start()
         self._radio_station: RadioStation | None = None
         self._radio_search: RadioSearchWorker | None = None
         self._radio_song_search: SongSearchWorker | None = None
@@ -208,6 +218,7 @@ class MainWindow(QMainWindow):
         #: True mientras la vista activa es la de radio (oculta transporte local).
         self._radio_view = False
         self._shortcut_actions: dict[str, QAction] = {}
+        self._media_shortcut_actions: dict[str, QAction] = {}
         self._theme_actions: dict[str, QAction] = {}
         #: Icono nativo de cada botón de transporte (para re-teñirlo por tema).
         self._icon_buttons: dict[QToolButton, QStyle.StandardPixmap] = {}
@@ -600,39 +611,30 @@ class MainWindow(QMainWindow):
         self._on_state_changed(self._player.state)
 
     def _build_shortcuts(self) -> None:
-        media_shortcuts: tuple[tuple[QKeySequence, str, Callable[..., Any]], ...] = (
-            (
-                QKeySequence(Qt.Key.Key_MediaPrevious),
-                tr("Pista anterior (multimedia)"),
-                self._on_prev,
-            ),
-            (
-                QKeySequence(Qt.Key.Key_MediaTogglePlayPause),
-                tr("Reproducir/pausar (multimedia)"),
-                self._on_play_clicked,
-            ),
-            (
-                QKeySequence(Qt.Key.Key_MediaPlay),
-                tr("Reproducir (multimedia)"),
-                self._on_play_clicked,
-            ),
-            (
-                QKeySequence(Qt.Key.Key_MediaPause),
-                tr("Pausar (multimedia)"),
-                self._player.pause,
-            ),
-            (
-                QKeySequence(Qt.Key.Key_MediaNext),
-                tr("Pista siguiente (multimedia)"),
-                self._on_next,
-            ),
+        media_actions = (
+            ("media_previous", tr("Anterior (multimedia)"), self._on_prev),
+            ("media_play_pause", tr("Reproducir/pausar (multimedia)"), self._on_play_clicked),
+            ("media_play", tr("Reproducir (multimedia)"), self._on_play_clicked),
+            ("media_pause", tr("Pausar (multimedia)"), self._on_media_pause),
+            ("media_stop", tr("Detener (multimedia)"), self._on_media_stop),
+            ("media_next", tr("Siguiente (multimedia)"), self._on_next),
+            ("media_rewind", tr("Retroceder (multimedia)"), self._on_media_rewind),
+            ("media_fast_forward", tr("Avanzar (multimedia)"), self._on_media_forward),
+            ("media_volume_down", tr("Bajar volumen (multimedia)"), self._on_media_volume_down),
+            ("media_volume_up", tr("Subir volumen (multimedia)"), self._on_media_volume_up),
+            ("media_mute", tr("Silenciar (multimedia)"), self._on_media_mute),
+            ("media_repeat", tr("Repetir (multimedia)"), self._on_media_repeat),
+            ("media_shuffle", tr("Aleatorio (multimedia)"), self._on_media_shuffle),
         )
-        for sequence, name, slot in media_shortcuts:
+        custom = self._settings.media_shortcuts
+        for shortcut_id, name, slot in media_actions:
             action = QAction(name, self)
-            action.setShortcut(sequence)
+            sequence = custom.get(shortcut_id, MEDIA_SHORTCUT_DEFAULTS[shortcut_id])
+            action.setShortcut(QKeySequence(sequence) if sequence else QKeySequence())
             action.setShortcutContext(Qt.ShortcutContext.ApplicationShortcut)
             action.triggered.connect(slot)
-            self.addAction(action)  # la ventana mantiene viva la acción
+            self.addAction(action)
+            self._media_shortcut_actions[shortcut_id] = action
 
         for shortcut_id, name, slot in (
             ("prev", tr("Pista anterior"), self._on_prev),
@@ -645,6 +647,49 @@ class MainWindow(QMainWindow):
             self.addAction(action)
             self._register_shortcut(shortcut_id, action)
         self._refresh_shortcut_labels()
+
+    def _apply_media_shortcuts(self) -> None:
+        custom = self._settings.media_shortcuts
+        for shortcut_id, action in self._media_shortcut_actions.items():
+            sequence = custom.get(shortcut_id, MEDIA_SHORTCUT_DEFAULTS[shortcut_id])
+            action.setShortcut(QKeySequence(sequence) if sequence else QKeySequence())
+
+    def _on_media_pause(self) -> None:
+        self._player.pause()
+
+    def _on_media_stop(self) -> None:
+        self._player.stop()
+
+    def _seek_relative(self, delta_ms: int) -> None:
+        if self._player.is_stream:
+            return
+        current = self._player.position_ms()
+        duration = self._player.duration_ms()
+        target = max(0, current + int(delta_ms))
+        if duration > 0:
+            target = min(target, duration)
+        self._player.seek(target)
+
+    def _on_media_rewind(self) -> None:
+        self._seek_relative(-10_000)
+
+    def _on_media_forward(self) -> None:
+        self._seek_relative(10_000)
+
+    def _on_media_volume_down(self) -> None:
+        self._player.set_volume(self._settings.volume - 5)
+
+    def _on_media_volume_up(self) -> None:
+        self._player.set_volume(self._settings.volume + 5)
+
+    def _on_media_mute(self) -> None:
+        self._button_mute.setChecked(not self._button_mute.isChecked())
+
+    def _on_media_repeat(self) -> None:
+        self._button_repeat.toggle()
+
+    def _on_media_shuffle(self) -> None:
+        self._button_shuffle.toggle()
 
     def _make_button(
         self,
@@ -703,8 +748,12 @@ class MainWindow(QMainWindow):
         player.position_changed.connect(self._on_position_changed)
         player.duration_changed.connect(self._on_duration_changed)
         player.volume_changed.connect(self._on_volume_changed)
+        self._shuffle_requested.connect(self._button_shuffle.setChecked)
+        self._repeat_requested.connect(self._button_repeat.setChecked)
         player.error_occurred.connect(self._on_error)
         player.repeat_consumed.connect(self._on_repeat_consumed)
+        player.stream_reconnecting.connect(self._on_stream_reconnecting)
+        player.stream_reconnected.connect(self._on_stream_reconnected)
         # El espectro se alimenta del audio decodificado por VLC, nunca de
         # una captura del micrófono ni de la salida del sistema.
         player.spectrum_samples.connect(self._spectrum.push_samples)
@@ -1228,6 +1277,18 @@ class MainWindow(QMainWindow):
         logger.warning("UI recibe error: %s", message)
         self.statusBar().showMessage(message, ERROR_TIMEOUT_MS)
 
+    def _on_stream_reconnecting(self, name: str) -> None:
+        message = tr("Reconectando {name}…").format(name=name)
+        self.statusBar().showMessage(message)
+        if self._radio_view:
+            self._radio_panel.show_message(message)
+
+    def _on_stream_reconnected(self, name: str) -> None:
+        message = tr("Radio reconectada: {name}").format(name=name)
+        self.statusBar().showMessage(message, ERROR_TIMEOUT_MS)
+        if self._radio_view:
+            self._radio_panel.show_message(message)
+
     # ------------------------------------------------------- slots de sliders
     def _on_seek_released(self) -> None:
         self._player.seek(self._slider_seek.value())
@@ -1669,6 +1730,8 @@ class MainWindow(QMainWindow):
         dialog.apply_window_size.connect(self._apply_window_size_from_dialog)
         dialog.apply_show_hidden.connect(self._apply_show_hidden_from_dialog)
         dialog.apply_shortcuts.connect(self._apply_shortcuts_from_dialog)
+        dialog.apply_media_shortcuts.connect(self._apply_media_shortcuts_from_dialog)
+        dialog.apply_audio_device.connect(self._apply_audio_device_from_dialog)
         dialog.test_notification.connect(self._send_test_notification)
         dialog.factory_reset.connect(self._on_factory_reset)
         dialog.exec()
@@ -1750,13 +1813,22 @@ class MainWindow(QMainWindow):
     def _apply_window_size_from_dialog(self, width: int, height: int) -> None:
         self._settings.window_width = int(width)
         self._settings.window_height = int(height)
+        # Si estaba maximizada, resize() no tiene efecto visible.
+        if self.isMaximized() or self.isFullScreen():
+            self.showNormal()
         self.resize(self._settings.window_width, self._settings.window_height)
+        # La geometría guardada tiene prioridad al arrancar. Si no se
+        # actualiza aquí, el tamaño elegido se pierde al reiniciar.
+        QTimer.singleShot(0, self._store_window_geometry)
         self.statusBar().showMessage(
             tr("Tamaño de ventana: {width}×{height}").format(
                 width=self._settings.window_width, height=self._settings.window_height
             ),
             ERROR_TIMEOUT_MS,
         )
+
+    def _store_window_geometry(self) -> None:
+        self._settings.window_geometry = self.saveGeometry()
 
     def _apply_show_hidden_from_dialog(self, show_hidden: bool) -> None:
         self._settings.show_hidden = bool(show_hidden)
@@ -1772,6 +1844,17 @@ class MainWindow(QMainWindow):
         self._settings.shortcuts = clean
         self._apply_shortcuts()
         self.statusBar().showMessage(tr("Atajos de teclado actualizados"), ERROR_TIMEOUT_MS)
+
+    def _apply_media_shortcuts_from_dialog(self, mapping: dict) -> None:
+        clean = {key: str(value) for key, value in dict(mapping).items()}
+        self._settings.media_shortcuts = clean
+        self._apply_media_shortcuts()
+        self.statusBar().showMessage(tr("Botones multimedia actualizados"), ERROR_TIMEOUT_MS)
+
+    def _apply_audio_device_from_dialog(self, device: str) -> None:
+        self._settings.audio_device = device
+        self._player.set_audio_device(device)
+        self.statusBar().showMessage(tr("Salida de audio actualizada"), ERROR_TIMEOUT_MS)
 
     def _apply_notification_settings(self, enabled: bool) -> None:
         self._settings.notifications_enabled = enabled
@@ -1891,12 +1974,16 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------- 0.1.6: aleatorio/repetir
     def _on_shuffle_toggled(self, checked: bool) -> None:
         self._player.shuffle = checked
+        if self._mpris is not None:
+            self._mpris.update_shuffle()
         self.statusBar().showMessage(
             tr("Aleatorio activado") if checked else tr("Aleatorio desactivado"), ERROR_TIMEOUT_MS
         )
 
     def _on_repeat_toggled(self, checked: bool) -> None:
         self._player.repeat = checked
+        if self._mpris is not None:
+            self._mpris.update_loop_status()
         self.statusBar().showMessage(
             tr("Repetición activada") if checked else tr("Repetición desactivada"), ERROR_TIMEOUT_MS
         )
@@ -1921,6 +2008,8 @@ class MainWindow(QMainWindow):
         self._button_repeat.blockSignals(True)
         self._button_repeat.setChecked(False)
         self._button_repeat.blockSignals(False)
+        if self._mpris is not None:
+            self._mpris.update_loop_status()
         self.statusBar().showMessage(
             tr("Repetición desactivada (repetida una vez)"), ERROR_TIMEOUT_MS
         )
@@ -2029,6 +2118,7 @@ class MainWindow(QMainWindow):
         self._lyrics_search = worker
         worker.found.connect(self._on_online_lyrics_found)
         worker.missing.connect(self._on_online_lyrics_missing)
+        worker.failed.connect(self._on_online_lyrics_failed)
         worker.finished.connect(self._on_online_lyrics_finished)
         worker.finished.connect(worker.deleteLater)
         if self._lyrics_window is not None and self._lyrics_window.isVisible():
@@ -2062,7 +2152,19 @@ class MainWindow(QMainWindow):
             return
         if self._lyrics_window is not None and self._lyrics_window.isVisible():
             self._lyrics_window.set_searching(False)
-            self._lyrics_window.set_status(tr("No se encontró letra en internet"))
+            self._lyrics_window.set_manual_search_available(True)
+            self._lyrics_window.set_status(tr("No se encontró letra sincronizada en internet"))
+
+    def _on_online_lyrics_failed(self, track_path: str) -> None:
+        current = self._player.current_track
+        if current is None or current.path != track_path:
+            return
+        if self._lyrics_window is not None and self._lyrics_window.isVisible():
+            self._lyrics_window.set_searching(False)
+            self._lyrics_window.set_manual_search_available(True)
+            self._lyrics_window.set_status(
+                tr("No se pudo conectar con el buscador de letras. Inténtalo de nuevo.")
+            )
 
     def _on_online_lyrics_finished(self) -> None:
         self._lyrics_search = None
@@ -2082,6 +2184,8 @@ class MainWindow(QMainWindow):
             self._lyrics_window.seek_requested.connect(self._on_lyrics_seek)
             # Botón que aparece cuando la pista no tiene letra.
             self._lyrics_window.search_requested.connect(self._on_lyrics_search_requested)
+            self._lyrics_window.manual_search_requested.connect(self._on_manual_lyrics_search)
+            self._lyrics_window.refresh_requested.connect(self._sync_lyrics_position)
         window = self._lyrics_window
         track = self._player.current_track
         window.show_track(track)
@@ -2127,6 +2231,33 @@ class MainWindow(QMainWindow):
     def _on_lyrics_destroyed(self, *_args: Any) -> None:
         self._lyrics_window = None
 
+    def _sync_lyrics_position(self) -> None:
+        window = self._lyrics_window
+        if window is None or not window.isVisible():
+            return
+        track = self._player.current_track
+        if track is None or self._player.is_stream:
+            return
+        window.sync_position(self._player.position_ms())
+
+    def _on_manual_lyrics_search(self, title: str, artist: str) -> None:
+        current = self._player.current_track
+        if current is None or not current.path or "://" in current.path:
+            return
+        if self._lyrics_search is not None and self._lyrics_search.isRunning():
+            if self._lyrics_window is not None:
+                self._lyrics_window.set_status(tr("Espera a que termine la búsqueda actual…"))
+            return
+        manual = replace(
+            current,
+            title=title.strip() or current.title,
+            artist=artist.strip() or current.artist,
+            albumartist="",
+        )
+        if self._lyrics_window is not None:
+            self._lyrics_window.set_manual_search_available(False)
+        self._start_online_lyrics(manual, force=True)
+
     def _init_mpris(self) -> None:
         if sys.platform != "linux":
             return
@@ -2138,6 +2269,8 @@ class MainWindow(QMainWindow):
                 self._settings,
                 on_raise=self._raise_requested.emit,
                 on_quit=self._quit_requested.emit,
+                on_shuffle_changed=self._shuffle_requested.emit,
+                on_repeat_changed=self._repeat_requested.emit,
             )
             adapter.start()
             self._mpris = adapter
@@ -2263,7 +2396,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: object) -> None:
         if not self._factory_reset_pending:
             self._save_playback_state()
-            self._settings.window_geometry = self.saveGeometry()
+            self._store_window_geometry()
             self._settings.playlist_paths = [track.path for track in self._player.playlist]
             self._settings.playlist_index = self._player.playlist.current_index
 

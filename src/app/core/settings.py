@@ -12,6 +12,7 @@ from app.utils.paths import APP_NAME
 # ------------------------------------------------------------------ claves
 KEY_VOLUME = "playback/volume"
 KEY_MUTED = "playback/muted"
+KEY_AUDIO_DEVICE = "playback/audio_device"
 KEY_SHUFFLE = "playback/shuffle"
 KEY_REPEAT = "playback/repeat"
 KEY_PLAYLIST_PATHS = "playlist/paths"
@@ -29,6 +30,7 @@ KEY_SHOW_HIDDEN = "ui/show_hidden"
 KEY_THEME = "ui/theme"
 KEY_LANGUAGE = "ui/language"
 KEY_SHORTCUTS = "shortcuts/custom"
+KEY_MEDIA_SHORTCUTS = "shortcuts/media"
 KEY_LIBRARY_FOLDERS = "library/folders"
 KEY_RADIO_STATIONS = "radio/stations"
 KEY_RADIO_OVERRIDES = "radio/overrides"
@@ -55,8 +57,6 @@ VIEW_MODES = {VIEW_CANCIONES, VIEW_FAVORITOS, VIEW_RADIO}
 DEFAULT_VIEW_MODE = VIEW_CANCIONES
 
 #: Atajos personalizables (Ajustes → Atajos): id → secuencia por defecto.
-#: Solo los IDs de esta tabla se pueden reasignar; las teclas multimedia
-#: del hardware quedan fijas (no tienen representación portable).
 SHORTCUT_DEFAULTS: dict[str, str] = {
     "prev": "F9",
     "play_pause": "F10",
@@ -71,6 +71,24 @@ SHORTCUT_DEFAULTS: dict[str, str] = {
     "save_playlist": "Ctrl+Shift+S",
     "settings": "Ctrl+,",
     "quit": "Ctrl+Q",
+}
+
+#: Botones multimedia que puede enviar un dispositivo Bluetooth o unos auriculares.
+#: Se pueden reasignar en Ajustes → Avanzado.
+MEDIA_SHORTCUT_DEFAULTS: dict[str, str] = {
+    "media_previous": "Media Previous",
+    "media_play_pause": "Toggle Media Play/Pause",
+    "media_play": "Media Play",
+    "media_pause": "Media Pause",
+    "media_stop": "Media Stop",
+    "media_next": "Media Next",
+    "media_rewind": "Media Rewind",
+    "media_fast_forward": "Media Fast Forward",
+    "media_volume_down": "Volume Down",
+    "media_volume_up": "Volume Up",
+    "media_mute": "Volume Mute",
+    "media_repeat": "Audio Repeat",
+    "media_shuffle": "Audio Random Play",
 }
 
 
@@ -138,6 +156,15 @@ class Settings:
     @muted.setter
     def muted(self, value: bool) -> None:
         self.set_value(KEY_MUTED, bool(value))
+
+    @property
+    def audio_device(self) -> str:
+        raw = self._raw(KEY_AUDIO_DEVICE, "")
+        return str(raw or "").strip()
+
+    @audio_device.setter
+    def audio_device(self, value: str) -> None:
+        self.set_value(KEY_AUDIO_DEVICE, str(value or "").strip())
 
     @property
     def shuffle(self) -> bool:
@@ -379,6 +406,24 @@ class Settings:
     def shortcuts(self, mapping: dict[str, str]) -> None:
         clean = {str(key): str(value) for key, value in mapping.items() if str(key)}
         self.set_value(KEY_SHORTCUTS, json.dumps(clean, ensure_ascii=False, sort_keys=True))
+
+    @property
+    def media_shortcuts(self) -> dict[str, str]:
+        raw = self._raw(KEY_MEDIA_SHORTCUTS, "")
+        if not raw:
+            return {}
+        try:
+            data = json.loads(str(raw))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {str(key): str(value) for key, value in data.items()}
+
+    @media_shortcuts.setter
+    def media_shortcuts(self, mapping: dict[str, str]) -> None:
+        clean = {str(key): str(value) for key, value in mapping.items() if str(key)}
+        self.set_value(KEY_MEDIA_SHORTCUTS, json.dumps(clean, ensure_ascii=False, sort_keys=True))
 
     # ------------------------------------------------------------------ radio
     @property

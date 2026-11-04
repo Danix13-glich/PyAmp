@@ -67,8 +67,8 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleName": "PyAmp",
             "CFBundleDisplayName": "PyAmp",
-            "CFBundleShortVersionString": "0.2.4",
-            "CFBundleVersion": "0.2.4",
+            "CFBundleShortVersionString": "0.2.5",
+            "CFBundleVersion": "0.2.5",
             "NSHighResolutionCapable": True,
         },
     )

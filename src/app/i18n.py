@@ -275,6 +275,8 @@ _EN: dict[str, str] = {
     # ----------------------------------------------------------------- letra
     "Letra — PyAmp": "Lyrics — PyAmp",
     "Letra no disponible :(": "Lyrics not available :(",
+    "No se encontró letra sincronizada en internet": "No synchronized lyrics found online",
+    "No se pudo conectar con el buscador de letras. Inténtalo de nuevo.": "Could not connect to the lyrics search. Try again.",
     "No hay ninguna pista en reproducción": "No track is playing",
     "No encontré «{stem}.lrc» (junto al audio o en {directory})": (
         "I couldn't find “{stem}.lrc” (next to the audio or in {directory})"
@@ -741,6 +743,8 @@ _IT: dict[str, str] = {
     # ----------------------------------------------------------------- letra
     "Letra — PyAmp": "Testo — PyAmp",
     "Letra no disponible :(": "Testo non disponibile :(",
+    "No se encontró letra sincronizada en internet": "Nessun testo sincronizzato trovato online",
+    "No se pudo conectar con el buscador de letras. Inténtalo de nuevo.": "Impossibile connettersi alla ricerca dei testi. Riprova.",
     "No hay ninguna pista en reproducción": "Nessun brano in riproduzione",
     "No encontré «{stem}.lrc» (junto al audio o en {directory})": (
         "Non ho trovato «{stem}.lrc» (accanto all'audio o in {directory})"
@@ -1199,6 +1203,8 @@ _AR: dict[str, str] = {
     # ----------------------------------------------------------------- letra
     "Letra — PyAmp": "الكلمات — PyAmp",
     "Letra no disponible :(": "الكلمات غير متاحة :(",
+    "No se encontró letra sincronizada en internet": "لم يتم العثور على كلمات متزامنة على الإنترنت",
+    "No se pudo conectar con el buscador de letras. Inténtalo de nuevo.": "تعذّر الاتصال بالبحث عن الكلمات. حاول مرة أخرى.",
     "No hay ninguna pista en reproducción": "لا يوجد مقطع قيد التشغيل",
     "No encontré «{stem}.lrc» (junto al audio o en {directory})": (
         "لم أجد «{stem}.lrc» (بجانب الصوت أو في {directory})"

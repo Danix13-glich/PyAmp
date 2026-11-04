@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 import wave
 from pathlib import Path
 from types import SimpleNamespace
@@ -129,6 +130,9 @@ class FakeBackend:
     def set_rate(self, rate: float) -> None:
         self.rates.append(rate)
 
+    def set_audio_device(self, device: str) -> None: ...
+    def refresh_audio_route(self) -> None: ...
+
     def set_volume(self, volume: int) -> None: ...
     def get_volume(self) -> int:
         return 100
@@ -189,7 +193,9 @@ def test_shuffle_picks_random_other_index(qapp: QApplication, tmp_path, monkeypa
         player.shutdown()
 
 
-def test_shuffle_favors_favorites(qapp: QApplication, tmp_path, monkeypatch) -> None:
+def test_shuffle_uses_same_probability_for_favorites(
+    qapp: QApplication, tmp_path, monkeypatch
+) -> None:
     settings = _isolated_settings(tmp_path)
     player, _backend = _fake_player(settings=settings)
     try:
@@ -209,8 +215,9 @@ def test_shuffle_favors_favorites(qapp: QApplication, tmp_path, monkeypatch) -> 
         population = captured["population"]
         weights = captured["weights"]
         assert 0 not in population  # nunca la actual
-        assert weights[population.index(2)] == player.FAVORITE_SHUFFLE_WEIGHT
+        assert weights[population.index(2)] == 1.0
         assert weights[population.index(1)] == 1.0
+        assert all(weight == 1.0 for weight in weights)
     finally:
         player.shutdown()
 
@@ -281,6 +288,41 @@ def test_speed_cycles_and_radio_always_uses_normal_speed(qapp: QApplication, tmp
 
         assert player.play_index(1) is True
         assert backend.rates[-1] == 2.0
+    finally:
+        player.shutdown()
+
+
+def test_radio_stalled_is_reconnected_automatically(qapp: QApplication, tmp_path) -> None:
+    player, backend = _fake_player(track_count=2, settings=_isolated_settings(tmp_path))
+    try:
+        assert player.play_stream("https://example.com/radio", "Radio") is True
+        assert backend.loaded.count("https://example.com/radio") == 1
+        messages: list[str] = []
+        player.stream_reconnecting.connect(messages.append)
+
+        backend.is_playing = lambda: False  # type: ignore[method-assign]
+        player._stream_stall_ticks = 39  # noqa: SLF001 - test del watchdog
+        player._poll()  # noqa: SLF001 - test del watchdog
+
+        assert backend.loaded.count("https://example.com/radio") == 2
+        assert messages == ["Radio — Artista desconocido"]
+    finally:
+        player.shutdown()
+
+
+def test_radio_with_frozen_clock_is_reconnected(qapp: QApplication, tmp_path) -> None:
+    player, backend = _fake_player(track_count=2, settings=_isolated_settings(tmp_path))
+    try:
+        assert player.play_stream("https://example.com/radio", "Radio") is True
+        assert backend.position_ms() == 0
+
+        # VLC sigue diciendo "Playing" pero el reloj del directo no avanza.
+        backend.position = 5000
+        player._stream_last_position = 5000  # noqa: SLF001 - test del watchdog
+        player._stream_position_updated = time.monotonic() - 13.0  # noqa: SLF001
+        player._poll()  # noqa: SLF001 - test del watchdog
+
+        assert backend.loaded.count("https://example.com/radio") == 2
     finally:
         player.shutdown()
 

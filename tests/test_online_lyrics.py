@@ -63,6 +63,7 @@ def test_search_lyrics_no_guarda_letra_plana(tmp_path: Path, monkeypatch) -> Non
     plain = _candidate(synced="", plain="Letra plana")
     monkeypatch.setattr(online, "LYRICS_DIR", tmp_path)
     monkeypatch.setattr(online, "_search_candidates", lambda title, artist, timeout_s=0: [plain])
+    monkeypatch.setattr(online, "_search_candidates_by_title", lambda title, timeout_s=0: [plain])
     monkeypatch.setattr(online, "_search_candidates_query", lambda query, timeout_s=0: [plain])
     track = Track(
         path=str(tmp_path / "music" / "song.mp3"),
@@ -198,6 +199,7 @@ def test_fetch_lyrics_conserva_letra_plana_si_no_hay_sincronizada(
     sidecar.write_text("letra local sin tiempos", encoding="utf-8")
     plain = _candidate(synced="", plain="Letra plana")
     monkeypatch.setattr(online, "_search_candidates", lambda title, artist, timeout_s=0: [plain])
+    monkeypatch.setattr(online, "_search_candidates_by_title", lambda title, timeout_s=0: [plain])
     monkeypatch.setattr(online, "_search_candidates_query", lambda query, timeout_s=0: [plain])
     track = Track(
         path=str(tmp_path / "music" / "song.mp3"),
@@ -277,6 +279,7 @@ def test_search_lyrics_tolera_diferencia_de_duracion(tmp_path: Path, monkeypatch
     monkeypatch.setattr(
         online, "_search_candidates", lambda title, artist, timeout_s=0: [candidate]
     )
+    monkeypatch.setattr(online, "_search_candidates_by_title", lambda title, timeout_s=0: [])
     monkeypatch.setattr(online, "_search_candidates_query", lambda query, timeout_s=0: [])
     track = Track(
         path=str(tmp_path / "song.mp3"),
@@ -294,6 +297,7 @@ def test_search_lyrics_prueba_consulta_libre_si_no_hay_resultados(
     candidate = _candidate()
     queries: list[str] = []
     monkeypatch.setattr(online, "_search_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(online, "_search_candidates_by_title", lambda title, timeout_s=0: [])
     monkeypatch.setattr(
         online,
         "_search_candidates_query",
@@ -307,7 +311,7 @@ def test_search_lyrics_prueba_consulta_libre_si_no_hay_resultados(
     )
 
     assert online.search_lyrics(track) == candidate
-    assert queries == ["Artist Song"]
+    assert queries == ["Song"]
 
 
 def test_clean_track_title_quita_feat_y_parentesis() -> None:
@@ -352,3 +356,133 @@ def test_fetch_lyrics_copia_la_sincronizada_compartida_junto_al_audio(
 
     assert online.fetch_lyrics(track) == sidecar
     assert "[00:01.00]Hola" in sidecar.read_text(encoding="utf-8")
+
+
+def test_clean_track_title_quita_sufijos_de_version() -> None:
+    assert online.clean_track_title("Song - Remastered 2011") == "Song"
+    assert online.clean_track_title("Song – Official Video") == "Song"
+    assert online.clean_track_title("01. Song") == "Song"
+    assert online.clean_track_title("Song - Part 2") == "Song - Part 2"
+    assert online.clean_track_title("Song - From Me to You") == "Song - From Me to You"
+
+
+def test_title_matches_no_confunde_titulos_muy_cortos() -> None:
+    assert online.title_matches("Go", "Go (Live)")
+    assert not online.title_matches("Go", "Goodbye")
+
+
+def test_select_penaliza_versiones_karaoke() -> None:
+    studio = _candidate(name="Song", duration=200.0)
+    karaoke = _candidate(name="Song (Karaoke Version)", duration=200.0)
+    assert online.select_lyrics("Song", "Artist", 200_000, [karaoke, studio]) is studio
+
+
+def test_select_prefiere_la_duracion_mas_cercana() -> None:
+    close = _candidate(name="Song", duration=200.2)
+    far = _candidate(name="Song", duration=202.0)
+    assert online.select_lyrics("Song", "Artist", 200_000, [far, close]) is close
+
+
+def test_search_lyrics_usa_albumartist_si_falta_artista(tmp_path: Path, monkeypatch) -> None:
+    candidate = _candidate(artist="Artist")
+    calls: list[tuple[str, str]] = []
+
+    def _fake(title: str, artist: str, timeout_s: int = 0):
+        calls.append((title, artist))
+        return [candidate]
+
+    monkeypatch.setattr(online, "_search_candidates", _fake)
+    track = Track(
+        path=str(tmp_path / "song.mp3"),
+        title="Song",
+        artist=None,
+        albumartist="Artist",
+        duration_ms=200_000,
+    )
+
+    assert online.search_lyrics(track) == candidate
+    assert calls[0] == ("Song", "Artist")
+
+
+def test_search_lyrics_extrae_artista_del_titulo(tmp_path: Path, monkeypatch) -> None:
+    candidate = _candidate(artist="Artist")
+    calls: list[tuple[str, str]] = []
+
+    def _fake(title: str, artist: str, timeout_s: int = 0):
+        calls.append((title, artist))
+        return [candidate]
+
+    monkeypatch.setattr(online, "_search_candidates", _fake)
+    track = Track(
+        path=str(tmp_path / "song.mp3"),
+        title="Artist - Song",
+        artist=None,
+        duration_ms=200_000,
+    )
+
+    assert online.search_lyrics(track) == candidate
+    assert calls[0] == ("Song", "Artist")
+
+
+def test_search_lyrics_prueba_el_titulo_sin_sufijo_de_version(tmp_path: Path, monkeypatch) -> None:
+    candidate = _candidate(name="Song", artist="Artist")
+    calls: list[tuple[str, str]] = []
+
+    def _fake(title: str, artist: str, timeout_s: int = 0):
+        calls.append((title, artist))
+        return [] if title != "Song" else [candidate]
+
+    monkeypatch.setattr(online, "_search_candidates", _fake)
+    track = Track(
+        path=str(tmp_path / "song.mp3"),
+        title="Song - Remastered 2011",
+        artist="Artist",
+        duration_ms=200_000,
+    )
+
+    assert online.search_lyrics(track) == candidate
+    assert ("Song", "Artist") in calls
+
+
+def test_select_rechaza_karaoke_si_la_pista_no_lo_es() -> None:
+    karaoke = _candidate(name="Song (Karaoke Version)", duration=200.0)
+    assert online.select_lyrics("Song", "Artist", 200_000, [karaoke]) is None
+
+
+def test_normalize_text_conserva_otros_alfabetos() -> None:
+    assert online.normalize_text("Café 東京") == "cafe 東京"
+    assert online.normalize_text("Привет, мир!") == "привет мир"
+
+
+def test_search_lyrics_busca_por_titulo_si_el_artista_esta_mal_escrito(
+    tmp_path: Path, monkeypatch
+) -> None:
+    candidate = _candidate(name="Beggin'", artist="Måneskin", duration=190.0)
+    queries: list[str] = []
+    monkeypatch.setattr(online, "_search_candidates", lambda *args, **kwargs: [])
+    monkeypatch.setattr(online, "_search_candidates_by_title", lambda title, timeout_s=0: [])
+    monkeypatch.setattr(
+        online,
+        "_search_candidates_query",
+        lambda query, timeout_s=0: queries.append(query) or [candidate],
+    )
+    track = Track(
+        path=str(tmp_path / "beggin.mp3"),
+        title="Beggin",
+        artist="Månzskin",
+        duration_ms=190_000,
+    )
+
+    assert online.search_lyrics(track) == candidate
+    assert queries == ["Beggin"]
+
+
+def test_artist_score_admite_erratas_leves() -> None:
+    assert online.artist_score("Månzskin", "Måneskin") >= 0.7
+    assert online.artist_score("OneRepublc", "OneRepublic") >= 0.7
+    assert online.artist_score("Pedro Kapo", "Pedro Capó") >= 0.7
+
+
+def test_select_usa_el_artista_del_titulo_si_el_canal_no_coincide() -> None:
+    candidate = _candidate(name="Måneskin - Beggin'", artist="7clouds", duration=210.0)
+    assert online.select_lyrics("Beggin", "Månzskin", 211_566, [candidate]) is candidate

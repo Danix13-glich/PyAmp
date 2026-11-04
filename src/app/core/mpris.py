@@ -147,11 +147,11 @@ class _PlayerInterface(ServiceInterface):
 
     @dbus_property(access=PropertyAccess.READWRITE)
     def LoopStatus(self) -> "s":  # noqa: F821 - tipo D-Bus
-        return "None"
+        return "Track" if self._adapter.player.repeat else "None"
 
     @LoopStatus.setter
     def LoopStatus(self, value: "s"):  # noqa: F821 - tipo D-Bus
-        return  # sin bucles en PyAmp
+        self._adapter.set_loop_status(value)
 
     @dbus_property(access=PropertyAccess.READ)
     def Rate(self) -> "d":  # noqa: F821 - tipo D-Bus
@@ -159,11 +159,11 @@ class _PlayerInterface(ServiceInterface):
 
     @dbus_property(access=PropertyAccess.READWRITE)
     def Shuffle(self) -> "b":  # noqa: F821 - tipo D-Bus
-        return False
+        return self._adapter.player.shuffle
 
     @Shuffle.setter
     def Shuffle(self, value: "b"):  # noqa: F821 - tipo D-Bus
-        return  # sin aleatorio en PyAmp
+        self._adapter.set_shuffle(bool(value))
 
     @dbus_property(access=PropertyAccess.READ)
     def Metadata(self) -> "a{sv}":  # noqa: F821 - tipo D-Bus
@@ -227,11 +227,15 @@ class MprisAdapter:
         *,
         on_raise: Callable[[], None] | None = None,
         on_quit: Callable[[], None] | None = None,
+        on_shuffle_changed: Callable[[bool], None] | None = None,
+        on_repeat_changed: Callable[[bool], None] | None = None,
     ) -> None:
         self.player = player
         self._settings = settings
         self._on_raise = on_raise
         self._on_quit = on_quit
+        self._on_shuffle_changed = on_shuffle_changed
+        self._on_repeat_changed = on_repeat_changed
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._root: _RootInterface | None = None
@@ -286,6 +290,12 @@ class MprisAdapter:
     def update_volume(self):
         self._emit_properties_changed(["Volume"])
 
+    def update_shuffle(self):
+        self._emit_properties_changed(["Shuffle"])
+
+    def update_loop_status(self):
+        self._emit_properties_changed(["LoopStatus"])
+
     def emit_seeked(self, position_ms: int):
         self._call_in_loop(lambda: self._safe_seeked(int(position_ms) * 1000))
 
@@ -336,6 +346,23 @@ class MprisAdapter:
 
     def set_volume(self, value: float):
         self.player.set_volume(max(0, min(100, int(round(value * 100)))))
+
+    def set_shuffle(self, value: bool):
+        if self.player.shuffle == value:
+            return
+        self.player.shuffle = value
+        if self._on_shuffle_changed is not None:
+            self._on_shuffle_changed(value)
+        self.update_shuffle()
+
+    def set_loop_status(self, value: str):
+        repeat = value in {"Track", "Playlist"}
+        if self.player.repeat == repeat:
+            return
+        self.player.repeat = repeat
+        if self._on_repeat_changed is not None:
+            self._on_repeat_changed(repeat)
+        self.update_loop_status()
 
     def metadata(self) -> dict[str, Variant]:
         track = self.player.current_track

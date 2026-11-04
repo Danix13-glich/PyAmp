@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import ctypes
 import logging
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from .base_backend import SPECTRUM_CHUNK, SPECTRUM_RATE, AudioBackend, BackendError
+from .outputs import move_own_audio_streams, resolve_audio_device
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +50,10 @@ class VlcBackend(AudioBackend):
         self._audio_dirty = False
         self._has_media = False
         self._is_stream = False
+        # Salida elegida por el usuario ("" = automática: Bluetooth si hay).
+        self._audio_device = ""
+        self._last_audio_device = ""
+        self._audio_route_lock = threading.Lock()
 
         # Segundo reproductor solo para el espectro: decodifica el mismo
         # audio y entrega las muestras por callback, sin tocar la salida de
@@ -152,6 +158,9 @@ class VlcBackend(AudioBackend):
         if self._analyzer is not None:
             with contextlib.suppress(Exception):
                 self._analyzer.play()
+        # PipeWire/PulseAudio crea una entrada nueva al empezar. Se mueve a la
+        # salida elegida un poco después, cuando ya existe en el mezclador.
+        self._schedule_audio_route(force=True)
 
     def pause(self) -> None:
         self._player.set_pause(1)
@@ -244,6 +253,39 @@ class VlcBackend(AudioBackend):
 
     def is_muted(self) -> bool:
         return self._muted
+
+    # ------------------------------------------------------- salida de audio
+    def set_audio_device(self, device: str) -> None:
+        self._audio_device = str(device or "").strip()
+        self._last_audio_device = ""
+        if self.is_playing():
+            self._schedule_audio_route(force=True)
+
+    def refresh_audio_route(self) -> None:
+        # Se consulta cada pocos segundos para detectar Bluetooth conectado o
+        # desconectado sin bloquear el hilo de la interfaz.
+        self._schedule_audio_route(force=False)
+
+    def _schedule_audio_route(self, *, force: bool) -> None:
+        thread = threading.Thread(
+            target=self._apply_audio_route,
+            kwargs={"force": force},
+            name="pyamp-audio-route",
+            daemon=True,
+        )
+        thread.start()
+
+    def _apply_audio_route(self, *, force: bool) -> None:
+        target = resolve_audio_device(self._audio_device)
+        if not target:
+            return
+        with self._audio_route_lock:
+            if not force and target == self._last_audio_device:
+                return
+            moved = move_own_audio_streams(target)
+            self._last_audio_device = target
+            if moved:
+                logger.info("Salida de audio VLC: %s (%d flujo(s))", target, moved)
 
     def _apply_audio_if_ready(self) -> bool:
         if not self._audio_dirty or not self.is_playing():

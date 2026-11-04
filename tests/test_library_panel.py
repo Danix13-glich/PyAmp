@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.core.player import Player
 from app.core.settings import (
+    MEDIA_SHORTCUT_DEFAULTS,
     SHORTCUT_DEFAULTS,
     Settings,
     get_settings,
@@ -402,6 +403,38 @@ def test_settings_shortcuts_ignores_corrupt_json(tmp_path: Path) -> None:
     assert settings.shortcuts == {}
 
 
+def test_settings_media_shortcuts_roundtrip_isolated(tmp_path: Path) -> None:
+    settings = Settings(tmp_path / "PyAmp-test.conf")
+
+    assert settings.media_shortcuts == {}
+
+    settings.media_shortcuts = {"media_play": "Ctrl+Alt+P", "media_next": "Ctrl+Alt+N"}
+    assert settings.media_shortcuts == {
+        "media_play": "Ctrl+Alt+P",
+        "media_next": "Ctrl+Alt+N",
+    }
+
+    settings.media_shortcuts = {}
+    assert settings.media_shortcuts == {}
+
+
+def test_settings_media_shortcuts_ignores_corrupt_json(tmp_path: Path) -> None:
+    settings = Settings(tmp_path / "PyAmp-test.conf")
+    settings.set_value("shortcuts/media", "{no es json")
+
+    assert settings.media_shortcuts == {}
+
+
+def test_settings_audio_device_roundtrip(tmp_path: Path) -> None:
+    settings = Settings(tmp_path / "PyAmp-test.conf")
+
+    assert settings.audio_device == ""
+    settings.audio_device = "bluez_output.AC_12_34"
+    assert settings.audio_device == "bluez_output.AC_12_34"
+    settings.audio_device = "  "
+    assert settings.audio_device == ""
+
+
 def test_settings_dialog_shortcut_edits_match_catalog(qapp: QApplication, tmp_path: Path) -> None:
     dialog = SettingsDialog(
         Settings(tmp_path / "PyAmp-test.conf"),
@@ -428,6 +461,56 @@ def test_settings_dialog_collects_only_custom_shortcuts(qapp: QApplication, tmp_
     dialog._on_accepted()  # noqa: SLF001 - tests
 
     assert collected == [{"next": "Ctrl+9"}]
+
+
+def test_settings_dialog_media_edits_match_catalog(qapp: QApplication, tmp_path: Path) -> None:
+    dialog = SettingsDialog(
+        Settings(tmp_path / "PyAmp-test.conf"),
+        notifier_backend="test-backend",
+        version="0.1.0",
+    )
+
+    assert set(dialog._media_shortcut_edits) == set(MEDIA_SHORTCUT_DEFAULTS)  # noqa: SLF001
+    edit = dialog._media_shortcut_edits["media_next"]  # noqa: SLF001 - tests
+    assert edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText) == (
+        MEDIA_SHORTCUT_DEFAULTS["media_next"]
+    )
+
+
+def test_settings_dialog_collects_only_custom_media_shortcuts(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    dialog = SettingsDialog(
+        Settings(tmp_path / "PyAmp-test.conf"),
+        notifier_backend="test-backend",
+        version="0.1.0",
+    )
+
+    collected: list[dict[str, str]] = []
+    dialog.apply_media_shortcuts.connect(lambda mapping: collected.append(dict(mapping)))
+
+    dialog._media_shortcut_edits["media_next"].setKeySequence(  # noqa: SLF001 - tests
+        QKeySequence("Ctrl+Alt+N")
+    )
+    dialog._on_accepted()  # noqa: SLF001 - tests
+
+    assert collected == [{"media_next": "Ctrl+Alt+N"}]
+
+
+def test_settings_dialog_can_disable_a_media_shortcut(qapp: QApplication, tmp_path: Path) -> None:
+    dialog = SettingsDialog(
+        Settings(tmp_path / "PyAmp-test.conf"),
+        notifier_backend="test-backend",
+        version="0.1.0",
+    )
+
+    collected: list[dict[str, str]] = []
+    dialog.apply_media_shortcuts.connect(lambda mapping: collected.append(dict(mapping)))
+
+    dialog._media_shortcut_edits["media_next"].clear()  # noqa: SLF001 - tests
+    dialog._on_accepted()  # noqa: SLF001 - tests
+
+    assert collected == [{"media_next": ""}]
 
 
 # ------------------------------------------------ espectrograma
@@ -567,6 +650,29 @@ def test_lyrics_window_search_button_emits_request(qapp: QApplication, tmp_path:
     window._search_button.click()  # noqa: SLF001 - tests
 
     assert received == [True]
+
+
+def test_lyrics_window_manual_search_appears_only_when_automatic_fails(
+    qapp: QApplication, tmp_path: Path
+) -> None:
+    audio = tmp_path / "tema-manual-test.mp3"
+    audio.write_bytes(b"")
+    window = LyricsWindow()
+    window.show_track(Track(path=str(audio), title="Sin letra", artist="Artista"))
+
+    assert window.search_offered
+    assert not window.manual_search_offered
+
+    window.set_manual_search_available(True)
+    assert window.manual_search_offered
+
+    window.set_searching(True)
+    assert not window._manual_button.isEnabled()  # noqa: SLF001 - tests
+    window.set_searching(False)
+    assert window._manual_button.isEnabled()  # noqa: SLF001 - tests
+
+    window.show_track(None)
+    assert not window.manual_search_offered
 
 
 def test_lyrics_window_offers_search_for_empty_lrc(qapp: QApplication, tmp_path: Path) -> None:

@@ -62,6 +62,15 @@ class AudioBackend(ABC):
         pass
 
     @abstractmethod
+    def set_audio_device(self, device: str) -> None:
+        # Opcional: los backends que permiten elegir salida lo sobrescriben.
+        self._audio_device = str(device or "")
+
+    def refresh_audio_route(self) -> None:  # noqa: B027 - opcional
+        # Opcional: comprobar si cambió la salida del sistema (Bluetooth).
+        return
+
+    @abstractmethod
     def set_muted(self, muted: bool) -> None:
         pass
 

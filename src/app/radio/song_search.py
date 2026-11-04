@@ -14,7 +14,7 @@ from PySide6.QtCore import QThread, Signal
 
 logger = logging.getLogger(__name__)
 
-USER_AGENT = "PyAmp/0.2.4 (+https://github.com/Danix13-glich/PyAmp)"
+USER_AGENT = "PyAmp/0.2.5 (+https://github.com/Danix13-glich/PyAmp)"
 NETWORK_TIMEOUT_S = 12
 ITUNES_URL = "https://itunes.apple.com/search"
 DEEZER_URL = "https://api.deezer.com/search"

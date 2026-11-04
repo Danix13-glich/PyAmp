@@ -5,11 +5,14 @@ import logging
 import re
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
     QDialog,
+    QDialogButtonBox,
+    QFormLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QPushButton,
@@ -61,10 +64,52 @@ def find_lrc_path(track_path: str) -> Path | None:
     return None
 
 
+class _ManualLyricsDialog(QDialog):
+
+    def __init__(self, title: str, artist: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle(tr("Buscar letra manualmente"))
+        self.setModal(True)
+        self.setMinimumWidth(380)
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+        self._edit_title = QLineEdit(title)
+        self._edit_title.setPlaceholderText(tr("Nombre de la canción"))
+        self._edit_artist = QLineEdit(artist)
+        self._edit_artist.setPlaceholderText(tr("Artista"))
+        form.addRow(tr("Nombre:"), self._edit_title)
+        form.addRow(tr("Artista:"), self._edit_artist)
+        layout.addLayout(form)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._on_ok)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    @property
+    def title_text(self) -> str:
+        return self._edit_title.text().strip()
+
+    @property
+    def artist_text(self) -> str:
+        return self._edit_artist.text().strip()
+
+    def _on_ok(self) -> None:
+        if not self.title_text:
+            self._edit_title.setFocus()
+            return
+        self.accept()
+
+
 class LyricsWindow(QDialog):
 
     seek_requested = Signal(int)
     search_requested = Signal()
+    manual_search_requested = Signal(str, str)
+    refresh_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -102,6 +147,13 @@ class LyricsWindow(QDialog):
         self._search_button.clicked.connect(self._on_search_clicked)
         self._search_button.hide()
 
+        self._manual_button = QPushButton(tr("Buscar letra manualmente…"))
+        self._manual_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._manual_button.setToolTip(tr("Introduce solo el nombre y el artista"))
+        self._manual_button.clicked.connect(self._on_manual_search_clicked)
+        self._manual_button.hide()
+        self._manual_available = False
+
         # Texto vacío + botón, centrados como un bloque.
         self._empty_view = QWidget()
         empty_layout = QVBoxLayout(self._empty_view)
@@ -110,6 +162,7 @@ class LyricsWindow(QDialog):
         empty_layout.addStretch(1)
         empty_layout.addWidget(self._placeholder)
         empty_layout.addWidget(self._search_button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        empty_layout.addWidget(self._manual_button, alignment=Qt.AlignmentFlag.AlignHCenter)
         empty_layout.addStretch(1)
         self._empty_view.hide()
         layout.addWidget(self._empty_view, stretch=1)
@@ -121,6 +174,7 @@ class LyricsWindow(QDialog):
         self._entries: list[tuple[int, str]] = []
         self._times: list[int] = []
         self._active_row = -1
+        self._track: Track | None = None
         self._base_font = self._list.font()
         self._active_font = QFont(self._base_font)
         self._active_font.setBold(True)
@@ -134,6 +188,14 @@ class LyricsWindow(QDialog):
 
     def _on_search_clicked(self) -> None:
         self.search_requested.emit()
+
+    def _on_manual_search_clicked(self) -> None:
+        track = self._track
+        title = track.display_title if track is not None else ""
+        artist = track.display_artist if track is not None else ""
+        dialog = _ManualLyricsDialog(title, artist, self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            self.manual_search_requested.emit(dialog.title_text, dialog.artist_text)
 
     # ------------------------------------------------------------ API pública
     @property
@@ -152,11 +214,20 @@ class LyricsWindow(QDialog):
     def search_offered(self) -> bool:
         return not self._search_button.isHidden()
 
+    @property
+    def manual_search_offered(self) -> bool:
+        return not self._manual_button.isHidden()
+
+    def set_manual_search_available(self, available: bool) -> None:
+        self._manual_available = bool(available)
+        self._manual_button.setVisible(self._manual_available and not self._placeholder.isHidden())
+
     def set_status(self, text: str) -> None:
         self._status.setText(text)
 
     def set_searching(self, searching: bool) -> None:
         self._search_button.setEnabled(not searching)
+        self._manual_button.setEnabled(not searching)
         self._search_button.setText(
             tr("Buscando letra…") if searching else tr("Buscar letra en internet")
         )
@@ -165,6 +236,9 @@ class LyricsWindow(QDialog):
         self._entries = []
         self._times = []
         self._active_row = -1
+        self._track = track
+        self._manual_available = False
+        self._manual_button.hide()
         self._list.clear()
         self._set_placeholder(False)
 
@@ -219,6 +293,7 @@ class LyricsWindow(QDialog):
         self._empty_view.setVisible(visible)
         self._list.setVisible(not visible)
         self._search_button.setVisible(visible and offer_search)
+        self._manual_button.setVisible(visible and offer_search and self._manual_available)
         if not (visible and offer_search):
             self.set_searching(False)
 
@@ -238,6 +313,18 @@ class LyricsWindow(QDialog):
             if item is not None:
                 self._apply_style(item, active=True)
                 self._list.scrollToItem(item, QListWidget.ScrollHint.PositionAtCenter)
+
+    def showEvent(self, event: object) -> None:
+        super().showEvent(event)  # type: ignore[arg-type]
+        self.refresh_requested.emit()
+
+    def event(self, event: object) -> bool:
+        if getattr(event, "type", lambda: None)() in (
+            QEvent.Type.WindowActivate,
+            QEvent.Type.ApplicationActivate,
+        ):
+            self.refresh_requested.emit()
+        return bool(super().event(event))  # type: ignore[arg-type]
 
     def reset(self) -> None:
         self.show_track(None)

@@ -27,9 +27,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.audio.outputs import list_audio_sinks
 from app.core.settings import (
     MAX_WINDOW_HEIGHT,
     MAX_WINDOW_WIDTH,
+    MEDIA_SHORTCUT_DEFAULTS,
     MIN_WINDOW_HEIGHT,
     MIN_WINDOW_WIDTH,
     SHORTCUT_DEFAULTS,
@@ -67,6 +69,23 @@ SHORTCUT_LABELS: dict[str, str] = {
     "quit": "Salir",
 }
 
+#: Etiquetas de los botones multimedia/Bluetooth, por ID.
+MEDIA_SHORTCUT_LABELS: dict[str, str] = {
+    "media_previous": "Botón anterior",
+    "media_play_pause": "Botón reproducir/pausar",
+    "media_play": "Botón reproducir",
+    "media_pause": "Botón pausar",
+    "media_stop": "Botón detener",
+    "media_next": "Botón siguiente",
+    "media_rewind": "Retroceder 10 segundos",
+    "media_fast_forward": "Avanzar 10 segundos",
+    "media_volume_down": "Bajar volumen",
+    "media_volume_up": "Subir volumen",
+    "media_mute": "Silenciar",
+    "media_repeat": "Repetir",
+    "media_shuffle": "Aleatorio",
+}
+
 #: Tamaño mínimo del diálogo.
 DIALOG_MIN_SIZE = (620, 560)
 
@@ -89,6 +108,8 @@ class SettingsDialog(QDialog):
     apply_window_size = Signal(int, int)
     apply_show_hidden = Signal(bool)
     apply_shortcuts = Signal(dict)
+    apply_media_shortcuts = Signal(dict)
+    apply_audio_device = Signal(str)
     test_notification = Signal()
     factory_reset = Signal()
 
@@ -104,6 +125,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle(tr("Ajustes de PyAmp"))
         self.setModal(True)
         self.setMinimumSize(*DIALOG_MIN_SIZE)
+        self._media_shortcuts = settings.media_shortcuts
 
         layout = QVBoxLayout(self)
         tabs = QTabWidget()
@@ -160,6 +182,32 @@ class SettingsDialog(QDialog):
         notif_form.addRow(self._button_test)
         outer.addWidget(notif_group)
 
+        audio_group = QGroupBox(tr("Audio"))
+        audio_form = QFormLayout(audio_group)
+        audio_row = QWidget()
+        audio_layout = QHBoxLayout(audio_row)
+        audio_layout.setContentsMargins(0, 0, 0, 0)
+        self._combo_audio_device = QComboBox()
+        self._combo_audio_device.setMinimumContentsLength(28)
+        self._combo_audio_device.setToolTip(
+            tr(
+                "Salida donde suena PyAmp. En automático se usan los cascos "
+                "Bluetooth si están conectados; si no, la salida del sistema."
+            )
+        )
+        self._button_refresh_audio = QPushButton(tr("Actualizar"))
+        self._button_refresh_audio.setToolTip(
+            tr("Buscar de nuevo altavoces y auriculares conectados")
+        )
+        self._button_refresh_audio.clicked.connect(
+            lambda: self._load_audio_devices(str(self._combo_audio_device.currentData() or ""))
+        )
+        audio_layout.addWidget(self._combo_audio_device, stretch=1)
+        audio_layout.addWidget(self._button_refresh_audio)
+        audio_form.addRow(tr("Salida de audio:"), audio_row)
+        self._load_audio_devices(settings.audio_device)
+        outer.addWidget(audio_group)
+
         info_group = QGroupBox(tr("Información"))
         info_form = QFormLayout(info_group)
         info_form.addRow(tr("Versión:"), QLabel(version))
@@ -204,6 +252,21 @@ class SettingsDialog(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setWidget(content)
         return scroll
+
+    def _load_audio_devices(self, selected: str = "") -> None:
+        combo = self._combo_audio_device
+        combo.blockSignals(True)
+        combo.clear()
+        combo.addItem(tr("Automática (Bluetooth si está conectado)"), "")
+        seen = {""}
+        for sink in list_audio_sinks():
+            combo.addItem(sink.label, sink.name)
+            seen.add(sink.name)
+        if selected and selected not in seen:
+            combo.addItem(tr("No disponible: {name}").format(name=selected), selected)
+        index = combo.findData(selected)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+        combo.blockSignals(False)
 
     def _build_appearance(self, settings: Settings) -> QWidget:
         page = QWidget()
@@ -368,8 +431,58 @@ class SettingsDialog(QDialog):
 
     def _build_advanced(self) -> QWidget:
         page = QWidget()
-        layout = QVBoxLayout(page)
+        outer = QVBoxLayout(page)
+        outer.setSpacing(10)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setSpacing(12)
+
+        media_group = QGroupBox(tr("Botones multimedia y Bluetooth"))
+        media_layout = QVBoxLayout(media_group)
+        media_hint = QLabel(
+            tr(
+                "PyAmp acepta los botones multimedia habituales de auriculares y "
+                "dispositivos Bluetooth (reproducir, pausar, siguiente, volumen, "
+                "etc.). Aquí puedes cambiar qué hace cada botón o asignarle una "
+                "combinación de teclas. Deja una casilla vacía para desactivar "
+                "ese botón. La asignación se aplica a todos los dispositivos."
+            )
+        )
+        media_hint.setWordWrap(True)
+        media_layout.addWidget(media_hint)
+
+        self._media_shortcut_edits: dict[str, QKeySequenceEdit] = {}
+        items = list(MEDIA_SHORTCUT_DEFAULTS.items())
+        half = (len(items) + 1) // 2
+        columns = QHBoxLayout()
+        columns.setSpacing(24)
+        custom = self._media_shortcuts
+        for chunk in (items[:half], items[half:]):
+            form = QFormLayout()
+            form.setVerticalSpacing(6)
+            form.setHorizontalSpacing(12)
+            form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+            for shortcut_id, default in chunk:
+                label_text = tr(MEDIA_SHORTCUT_LABELS[shortcut_id])
+                label = QLabel(label_text)
+                edit = QKeySequenceEdit(QKeySequence(custom.get(shortcut_id, default)))
+                edit.setAccessibleName(label_text)
+                edit.setToolTip(
+                    tr("Pulsa el botón del dispositivo o la combinación que quieras usar.")
+                )
+                self._media_shortcut_edits[shortcut_id] = edit
+                form.addRow(label, edit)
+            columns.addLayout(form)
+        columns.addStretch(1)
+        media_layout.addLayout(columns)
+
+        self._button_reset_media = QPushButton(tr("Restaurar botones multimedia"))
+        self._button_reset_media.clicked.connect(self._reset_media_shortcuts)
+        media_layout.addWidget(self._button_reset_media, alignment=Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(media_group)
 
         reset_group = QGroupBox(tr("Restaurar valores de fábrica"))
         reset_layout = QVBoxLayout(reset_group)
@@ -388,7 +501,14 @@ class SettingsDialog(QDialog):
         reset_layout.addWidget(self._button_factory_reset, alignment=Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(reset_group)
         layout.addStretch(1)
+
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
         return page
+
+    def _reset_media_shortcuts(self) -> None:
+        for shortcut_id, edit in self._media_shortcut_edits.items():
+            edit.setKeySequence(QKeySequence(MEDIA_SHORTCUT_DEFAULTS[shortcut_id]))
 
     def _on_factory_reset(self) -> None:
         answer = QMessageBox.warning(
@@ -496,6 +616,8 @@ class SettingsDialog(QDialog):
         self.apply_window_size.emit(self._spin_width.value(), self._spin_height.value())
         self.apply_show_hidden.emit(self._check_hidden.isChecked())
         self.apply_shortcuts.emit(self._collect_shortcuts())
+        self.apply_media_shortcuts.emit(self._collect_media_shortcuts())
+        self.apply_audio_device.emit(str(self._combo_audio_device.currentData() or ""))
         self.accept()
 
     def _resolve_theme_id(self) -> str:
@@ -519,4 +641,16 @@ class SettingsDialog(QDialog):
             sequence = edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText)
             if sequence and sequence != SHORTCUT_DEFAULTS[shortcut_id]:
                 mapping[shortcut_id] = sequence
+        return mapping
+
+    def _collect_media_shortcuts(self) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        for shortcut_id, edit in self._media_shortcut_edits.items():
+            sequence = edit.keySequence().toString(QKeySequence.SequenceFormat.PortableText)
+            if sequence:
+                if sequence != MEDIA_SHORTCUT_DEFAULTS[shortcut_id]:
+                    mapping[shortcut_id] = sequence
+            else:
+                # Cadena vacía = botón desactivado (no vuelve al valor por defecto).
+                mapping[shortcut_id] = ""
         return mapping
